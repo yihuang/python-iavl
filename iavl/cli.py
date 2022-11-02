@@ -76,7 +76,7 @@ def cli():
 @click.option("--store", "-s", multiple=True)
 def root_hash(db, store: List[str], version: Optional[int]):
     """
-    print hashes of iavl stores
+    print root hashes of iavl stores
     """
     if not store:
         raise click.UsageError("no store names are provided")
@@ -93,6 +93,9 @@ def root_hash(db, store: List[str], version: Optional[int]):
 @click.option("--store", "-s")
 @click.argument("hash")
 def node(db, hash, store):
+    """
+    print the content of a node
+    """
     db = rocksdb.DB(str(db), rocksdb.Options(), read_only=True)
     bz = db.get(store_prefix(store) + node_key(HexBytes(hash)))
     offset = 0
@@ -132,6 +135,9 @@ def node(db, hash, store):
 @click.option("--store", "-s")
 @click.argument("key")
 def fast_node(db, key, store):
+    """
+    print the content of a fast node
+    """
     if not store:
         raise click.UsageError("no store names are provided")
     db = rocksdb.DB(str(db), rocksdb.Options(), read_only=True)
@@ -161,6 +167,9 @@ def latest_version(db, store):
 @click.option("--db", help="path to application.db", type=click.Path(exists=True))
 @click.option("--store", "-s", multiple=True)
 def metadata(db, store):
+    """
+    print storage version of iavl stores
+    """
     db = rocksdb.DB(str(db), rocksdb.Options(), read_only=True)
     for s in store:
         bz = db.get(store_prefix(s) + b"m" + b"storage_version")
@@ -170,6 +179,9 @@ def metadata(db, store):
 @cli.command()
 @click.option("--db", help="path to application.db", type=click.Path(exists=True))
 def commit_infos(db):
+    """
+    print latest version and commit infos of rootmulti store
+    """
     db = rocksdb.DB(str(db), rocksdb.Options(), read_only=True)
     bz = db.get(b"s/latest")
     version, _ = cprotobuf.decode_primitive(bz[1:], "uint64")
