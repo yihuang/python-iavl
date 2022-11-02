@@ -169,14 +169,20 @@ def metadata(db, store):
 
 @cli.command()
 @click.option("--db", help="path to application.db", type=click.Path(exists=True))
-def commit_infos(db, store):
+def commit_infos(db):
+    db = rocksdb.DB(str(db), rocksdb.Options(), read_only=True)
     bz = db.get(b"s/latest")
     version, _ = cprotobuf.decode_primitive(bz[1:], "uint64")
-    print(f"version: {version}")
-    bz = db.get("s/{version}".encode())
+    print(f"latest version: {version}")
+    bz = db.get(f"s/{version}".encode())
     res = CommitInfo()
     res.ParseFromString(bz)
-    print("commit infos:", res)
+    print(f"commit info version: {res.version}")
+    for info in res.store_infos:
+        print(
+            f"store name: {info.name}, version: {info.commit_id.version}, hash: "
+            f"{HexBytes(info.commit_id.hash).hex()}"
+        )
 
 
 if __name__ == "__main__":
