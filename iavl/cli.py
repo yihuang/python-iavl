@@ -15,6 +15,10 @@ def node_key(hash: bytes) -> bytes:
     return b"n" + hash
 
 
+def fast_node_key(key: bytes) -> bytes:
+    return b"f" + key
+
+
 def store_prefix(s: str) -> bytes:
     return b"s/k:%s/" % s.encode()
 
@@ -110,6 +114,22 @@ def node(db, hash, store):
 
 @cli.command()
 @click.option("--db", help="path to application.db", type=click.Path(exists=True))
+@click.option("--store", "-s")
+@click.argument("key")
+def fast_node(db, key, store):
+    if not store:
+        raise click.UsageError("no store names are provided")
+    db = rocksdb.DB(str(db), rocksdb.Options(), read_only=True)
+    bz = db.get(store_prefix(store) + fast_node_key(HexBytes(key)))
+    offset = 0
+    version, n = cprotobuf.decode_primitive(bz[offset:], "int64")
+    offset += n
+    value, _ = decode_bytes(bz[offset:])
+    print(f"updated at: {version}, value: {HexBytes(value).hex()}")
+
+
+@cli.command()
+@click.option("--db", help="path to application.db", type=click.Path(exists=True))
 @click.option("--store", "-s", multiple=True)
 def version(db, store):
     """
@@ -120,6 +140,16 @@ def version(db, store):
     db = rocksdb.DB(str(db), rocksdb.Options(), read_only=True)
     for s in store:
         print(f"{s}: {latest_version(db, s)}")
+
+
+@cli.command()
+@click.option("--db", help="path to application.db", type=click.Path(exists=True))
+@click.option("--store", "-s", multiple=True)
+def metadata(db, store):
+    db = rocksdb.DB(str(db), rocksdb.Options(), read_only=True)
+    for s in store:
+        bz = db.get(store_prefix(s) + b"m" + b"storage_version")
+        print(f"{s} storage version: {bz.decode()}")
 
 
 if __name__ == "__main__":
