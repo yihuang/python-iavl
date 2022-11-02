@@ -23,15 +23,17 @@ def store_prefix(s: str) -> bytes:
     return b"s/k:%s/" % s.encode()
 
 
-def prev_version(db: rocksdb.DB, store: str, v: int) -> int:
+def prev_version(db: rocksdb.DB, store: str, v: int) -> Optional[int]:
     it = db.iterkeys()
     prefix = store_prefix(store)
     it.seek_for_prev(prefix + root_key(v))
     try:
         k = next(it)
     except StopIteration:
-        return None
+        return
     else:
+        if not k.startswith(prefix + b"r"):
+            return
         # parse version from key
         return int.from_bytes(k[len(prefix) + 1 :], "big")
 
