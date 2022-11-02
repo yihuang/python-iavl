@@ -70,9 +70,7 @@
       )
     ) // {
       overlay = final: prev: {
-        rocksdb = (prev.rocksdb.override {
-          enableJemalloc = true;
-        }).overrideAttrs (old: rec {
+        rocksdb = prev.rocksdb.overrideAttrs (old: rec {
           pname = "rocksdb";
           version = "6.29.5";
           src = rocksdb-src;
