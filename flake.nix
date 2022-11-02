@@ -37,6 +37,11 @@
           projectDir = ./.;
           overrides = callPackage overrides { };
         };
+      iavl-cli = { poetry2nix, callPackage }:
+        poetry2nix.mkPoetryApplication {
+          projectDir = ./.;
+          overrides = callPackage overrides { };
+        };
     in
     (flake-utils.lib.eachDefaultSystem
       (system:
@@ -52,9 +57,7 @@
         rec {
           packages = {
             iavl-env = pkgs.callPackage iavl-env { };
-            iavl-cli = pkgs.writeShellScriptBin "iavl" ''
-              ${packages.iavl-env}/bin/iavl $@
-            '';
+            iavl-cli = pkgs.callPackage iavl-cli { };
           };
           defaultPackage = packages.iavl-cli;
           apps = {

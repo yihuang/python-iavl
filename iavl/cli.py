@@ -36,7 +36,7 @@ def prev_version(db: rocksdb.DB, store: str, v: int) -> int:
         return int.from_bytes(k[len(prefix) + 1 :], "big")
 
 
-def latest_version(db: rocksdb.DB, store: str) -> int:
+def iavl_latest_version(db: rocksdb.DB, store: str) -> int:
     return prev_version(db, store, 1 << 63 - 1)
 
 
@@ -44,6 +44,21 @@ def decode_bytes(bz: bytes) -> (bytes, int):
     l, n = cprotobuf.decode_primitive(bz, "uint64")
     assert l + n <= len(bz)
     return bz[n : n + l], n + l
+
+
+class CommitID(cprotobuf.ProtoEntity):
+    version = cprotobuf.Field("int64", 1)
+    hash = cprotobuf.Field("bytes", 2)
+
+
+class StoreInfo(cprotobuf.ProtoEntity):
+    name = cprotobuf.Field("string", 1)
+    commit_id = cprotobuf.Field(CommitID, 2)
+
+
+class CommitInfo(cprotobuf.ProtoEntity):
+    version = cprotobuf.Field("int64", 1)
+    store_infos = cprotobuf.Field(StoreInfo, 2, repeated=True)
 
 
 @click.group
@@ -68,7 +83,7 @@ def root_hash(db, store: List[str], version: Optional[int]):
     db = rocksdb.DB(str(db), rocksdb.Options(), read_only=True)
     for s in store:
         if version is None:
-            version = latest_version(db, s)
+            version = iavl_latest_version(db, s)
         bz = db.get(store_prefix(s) + root_key(version))
         print(f"{s}: {binascii.hexlify(bz).decode()}")
 
@@ -131,7 +146,7 @@ def fast_node(db, key, store):
 @cli.command()
 @click.option("--db", help="path to application.db", type=click.Path(exists=True))
 @click.option("--store", "-s", multiple=True)
-def version(db, store):
+def latest_version(db, store):
     """
     print latest versions of iavl stores
     """
@@ -139,7 +154,7 @@ def version(db, store):
         raise click.UsageError("no store names are provided")
     db = rocksdb.DB(str(db), rocksdb.Options(), read_only=True)
     for s in store:
-        print(f"{s}: {latest_version(db, s)}")
+        print(f"{s}: {iavl_latest_version(db, s)}")
 
 
 @cli.command()
@@ -150,6 +165,18 @@ def metadata(db, store):
     for s in store:
         bz = db.get(store_prefix(s) + b"m" + b"storage_version")
         print(f"{s} storage version: {bz.decode()}")
+
+
+@cli.command()
+@click.option("--db", help="path to application.db", type=click.Path(exists=True))
+def commit_infos(db, store):
+    bz = db.get(b"s/latest")
+    version, _ = cprotobuf.decode_primitive(bz[1:], "uint64")
+    print(f"version: {version}")
+    bz = db.get("s/{version}".encode())
+    res = CommitInfo()
+    res.ParseFromString(bz)
+    print("commit infos:", res)
 
 
 if __name__ == "__main__":
