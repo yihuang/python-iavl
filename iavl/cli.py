@@ -98,7 +98,7 @@ def commit_infos(db, version):
     """
     db = dbm.open(str(db), read_only=True)
     res = load_commit_infos(db, version)
-    print(f"latest version: {res.version}")
+    print(f"version: {res.version}")
     for info in res.store_infos:
         print(
             f"store name: {info.name}, version: {info.commit_id.version}, hash: "
