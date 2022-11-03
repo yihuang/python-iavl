@@ -1,3 +1,4 @@
+import hashlib
 import itertools
 from collections.abc import Iterator
 from typing import Callable, List, NamedTuple, Optional, Tuple
@@ -5,6 +6,8 @@ from typing import Callable, List, NamedTuple, Optional, Tuple
 import cprotobuf
 import rocksdb
 from hexbytes import HexBytes
+
+EMPTY_HASH = hashlib.sha256().digest()
 
 
 class CommitID(cprotobuf.ProtoEntity):
@@ -20,6 +23,10 @@ class StoreInfo(cprotobuf.ProtoEntity):
 class CommitInfo(cprotobuf.ProtoEntity):
     version = cprotobuf.Field("int64", 1)
     store_infos = cprotobuf.Field(StoreInfo, 2, repeated=True)
+
+
+class StdInt(cprotobuf.ProtoEntity):
+    value = cprotobuf.Field("uint64", 1)
 
 
 class Node(NamedTuple):
@@ -105,15 +112,11 @@ def prev_version(db: rocksdb.DB, store: str, v: int) -> Optional[int]:
     it = db.iterkeys()
     prefix = store_prefix(store)
     it.seek_for_prev(prefix + root_key(v))
-    try:
-        k = next(it)
-    except StopIteration:
+    k = next(it)
+    if not k.startswith(prefix + b"r"):
         return
-    else:
-        if not k.startswith(prefix + b"r"):
-            return
-        # parse version from key
-        return int.from_bytes(k[len(prefix) + 1 :], "big")
+    # parse version from key
+    return int.from_bytes(k[len(prefix) + 1 :], "big")
 
 
 def iavl_latest_version(db: rocksdb.DB, store: str) -> int:
@@ -202,6 +205,10 @@ def iter_iavl_tree(
     start: Optional[bytes],
     end: Optional[bytes],
 ):
+    if not node_hash or node_hash == EMPTY_HASH:
+        # empty root node
+        return
+
     prefix = store_prefix(store)
 
     def get_node(hash: bytes) -> Node:
@@ -277,3 +284,25 @@ def diff_iterators(it1, it2):
         else:
             action = 2
             yield 2, k2, v2
+
+
+def load_commit_infos(db: rocksdb.DB) -> CommitInfo:
+    bz = db.get(b"s/latest")
+    version, _ = cprotobuf.decode_primitive(bz[1:], "uint64")
+    bz = db.get(f"s/{version}".encode())
+    res = CommitInfo()
+    res.ParseFromString(bz)
+    assert version == res.version
+    return res
+
+
+def decode_stdint(bz: bytes) -> int:
+    o = StdInt()
+    o.ParseFromString(bz)
+    return o.value
+
+
+def encode_stdint(n: int) -> bytes:
+    o = StdInt()
+    o.value = n
+    return bytes(o.SerializeToString())

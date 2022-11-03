@@ -3,13 +3,13 @@ import json
 from typing import List, Optional
 
 import click
-import cprotobuf
 import rocksdb
 from hexbytes import HexBytes
 
 from .utils import (CommitInfo, decode_fast_node, decode_node, diff_iterators,
-                    fast_node_key, iavl_latest_version, iter_fast_nodes,
-                    iter_iavl_tree, node_key, root_key, store_prefix)
+                    encode_stdint, fast_node_key, iavl_latest_version,
+                    iter_fast_nodes, iter_iavl_tree, load_commit_infos,
+                    node_key, root_key, store_prefix)
 
 
 @click.group
@@ -92,13 +92,9 @@ def commit_infos(db):
     print latest version and commit infos of rootmulti store
     """
     db = rocksdb.DB(str(db), rocksdb.Options(), read_only=True)
-    bz = db.get(b"s/latest")
-    version, _ = cprotobuf.decode_primitive(bz[1:], "uint64")
-    print(f"latest version: {version}")
-    bz = db.get(f"s/{version}".encode())
-    res = CommitInfo()
-    res.ParseFromString(bz)
-    print(f"commit info version: {res.version}")
+
+    res = load_commit_infos(db)
+    print(f"latest version: {res.version}")
     for info in res.store_infos:
         print(
             f"store name: {info.name}, version: {info.commit_id.version}, hash: "
@@ -200,6 +196,46 @@ def diff_fastnode(db, store, start, end, output_value):
             print(f"{flag} {HexBytes(k).hex()} {v}")
         else:
             print(f"{flag} {HexBytes(k).hex()}")
+
+
+@cli.command()
+@click.option("--db", help="path to application.db", type=click.Path(exists=True))
+@click.option(
+    "--target",
+    help="rollback to target version, default to latest version minus 1",
+    type=click.INT,
+)
+def fast_rollback(
+    db,
+    target: Optional[int],
+):
+    """
+    A quick and dirty way to rollback chain state
+
+    1. Delete the root nodes of iavl tree
+    2. Update latest version of multistore
+    """
+    db = rocksdb.DB(str(db), rocksdb.Options())
+    info = load_commit_infos(db)
+    if target is None:
+        target = info.version - 1
+    assert target < info.version, f"can't rollback to {target}, latest {info.version}"
+
+    print("rollback to", target)
+    batch = rocksdb.WriteBatch()
+    for info in info.store_infos:
+        if info.commit_id.version == 0:
+            # not iavl store
+            continue
+
+        prefix = store_prefix(info.name)
+        ver = iavl_latest_version(db, info.name)
+        for v in range(ver, target, -1):
+            print(f"delete root node, version: {v}, store: {info.name}")
+            batch.delete(prefix + root_key(v))
+    batch.put(b"s/latest", encode_stdint(target))
+    db.write(batch)
+    print(f"update latest version to {target}")
 
 
 if __name__ == "__main__":
