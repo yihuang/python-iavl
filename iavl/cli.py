@@ -87,13 +87,17 @@ def metadata(db, store):
 
 @cli.command()
 @click.option("--db", help="path to application.db", type=click.Path(exists=True))
-def commit_infos(db):
+@click.option(
+    "--version",
+    help="the version to query, default to latest version if not provided",
+    type=click.INT,
+)
+def commit_infos(db, version):
     """
     print latest version and commit infos of rootmulti store
     """
     db = dbm.open(str(db), read_only=True)
-
-    res = load_commit_infos(db)
+    res = load_commit_infos(db, version)
     print(f"latest version: {res.version}")
     for info in res.store_infos:
         print(

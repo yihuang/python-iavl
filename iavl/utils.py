@@ -288,9 +288,15 @@ def diff_iterators(it1, it2):
             yield 2, k2, v2
 
 
-def load_commit_infos(db: DBM) -> CommitInfo:
+def multistore_latest_version(db: DBM) -> int:
     bz = db.get(b"s/latest")
     version, _ = cprotobuf.decode_primitive(bz[1:], "uint64")
+    return version
+
+
+def load_commit_infos(db: DBM, version: Optional[int]) -> CommitInfo:
+    if version is None:
+        version = multistore_latest_version(db)
     bz = db.get(f"s/{version}".encode())
     res = CommitInfo()
     res.ParseFromString(bz)
