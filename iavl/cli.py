@@ -6,61 +6,8 @@ import cprotobuf
 import rocksdb
 from hexbytes import HexBytes
 
-
-def root_key(v: int) -> bytes:
-    return b"r" + v.to_bytes(8, "big")
-
-
-def node_key(hash: bytes) -> bytes:
-    return b"n" + hash
-
-
-def fast_node_key(key: bytes) -> bytes:
-    return b"f" + key
-
-
-def store_prefix(s: str) -> bytes:
-    return b"s/k:%s/" % s.encode()
-
-
-def prev_version(db: rocksdb.DB, store: str, v: int) -> Optional[int]:
-    it = db.iterkeys()
-    prefix = store_prefix(store)
-    it.seek_for_prev(prefix + root_key(v))
-    try:
-        k = next(it)
-    except StopIteration:
-        return
-    else:
-        if not k.startswith(prefix + b"r"):
-            return
-        # parse version from key
-        return int.from_bytes(k[len(prefix) + 1 :], "big")
-
-
-def iavl_latest_version(db: rocksdb.DB, store: str) -> int:
-    return prev_version(db, store, 1 << 63 - 1)
-
-
-def decode_bytes(bz: bytes) -> (bytes, int):
-    l, n = cprotobuf.decode_primitive(bz, "uint64")
-    assert l + n <= len(bz)
-    return bz[n : n + l], n + l
-
-
-class CommitID(cprotobuf.ProtoEntity):
-    version = cprotobuf.Field("int64", 1)
-    hash = cprotobuf.Field("bytes", 2)
-
-
-class StoreInfo(cprotobuf.ProtoEntity):
-    name = cprotobuf.Field("string", 1)
-    commit_id = cprotobuf.Field(CommitID, 2)
-
-
-class CommitInfo(cprotobuf.ProtoEntity):
-    version = cprotobuf.Field("int64", 1)
-    store_infos = cprotobuf.Field(StoreInfo, 2, repeated=True)
+from .utils import (CommitInfo, decode_bytes, fast_node_key,
+                    iavl_latest_version, node_key, root_key, store_prefix)
 
 
 @click.group
