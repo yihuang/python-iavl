@@ -188,8 +188,13 @@ def diff_fastnode(db, store, start, end):
     root_hash = db.get(store_prefix(store) + root_key(version))
     it2 = iter_iavl_tree(db, store, root_hash, start, end)
 
-    for left, k, v in diff_iterators(it1, it2):
-        flag = "-" if left else "+"
+    for status, k, v in diff_iterators(it1, it2):
+        if status == 0:
+            flag = "*"
+        elif status == 1:
+            flag = "-"
+        else:
+            flag = "+"
         print(f"{flag} {HexBytes(k).hex()}")
 
 

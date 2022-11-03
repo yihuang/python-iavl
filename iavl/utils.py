@@ -242,7 +242,11 @@ def visit_iavl_nodes(
 
 def diff_iterators(it1, it2):
     """
-    yield: (left_or_right, key, value)
+    yield: (status, key, value)
+    status:
+      - 0: value difference
+      - 1: new key on the left
+      - 2: new key on the right
     """
     # 0: advance both
     # 1: advance it1
@@ -256,17 +260,19 @@ def diff_iterators(it1, it2):
 
         if k1 is None and k2 is None:
             break
-        elif k1 == k2:
-            action = 0
         elif k2 is None:
             action = 1
-            yield True, k1, v1
+            yield 1, k1, v1
         elif k1 is None:
             action = 2
-            yield False, k2, v2
+            yield 2, k2, v2
+        elif k1 == k2:
+            if v1 != v2:
+                yield 0, k1, (v1, v2)
+            action = 0
         elif k1 < k2:
             action = 1
-            yield True, k1, v1
+            yield 1, k1, v1
         else:
             action = 2
-            yield False, k2, v2
+            yield 2, k2, v2
