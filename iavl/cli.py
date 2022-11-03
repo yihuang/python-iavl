@@ -116,7 +116,7 @@ def commit_infos(db):
 )
 @click.option("--start")
 @click.option("--end")
-@click.option("--output-value", type=click.BOOL)
+@click.option("--output-value", is_flag=True, default=False)
 def range_iavl(db, store, version, start, end, output_value):
     """
     iterate iavl tree
@@ -145,7 +145,7 @@ def range_iavl(db, store, version, start, end, output_value):
 @click.option("--store", "-s")
 @click.option("--start")
 @click.option("--end")
-@click.option("--output-value", type=click.BOOL)
+@click.option("--output-value", is_flag=True, default=False)
 def range_fastnode(db, store, start, end, output_value):
     """
     iterate fast node index
@@ -169,7 +169,8 @@ def range_fastnode(db, store, start, end, output_value):
 @click.option("--store", "-s")
 @click.option("--start")
 @click.option("--end")
-def diff_fastnode(db, store, start, end):
+@click.option("--output-value", is_flag=True, default=False)
+def diff_fastnode(db, store, start, end, output_value):
     """
     compare fast node index with latest iavl tree version,
     to see if there are any differences.
@@ -195,7 +196,10 @@ def diff_fastnode(db, store, start, end):
             flag = "-"
         else:
             flag = "+"
-        print(f"{flag} {HexBytes(k).hex()}")
+        if output_value:
+            print(f"{flag} {HexBytes(k).hex()} {v}")
+        else:
+            print(f"{flag} {HexBytes(k).hex()}")
 
 
 if __name__ == "__main__":

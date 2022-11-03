@@ -184,7 +184,8 @@ def iter_fast_nodes(
         k = k.removeprefix(prefix)
         if end is not None and k >= end:
             break
-        yield k, v
+        _, value, _ = decode_fast_node(v)
+        yield k, value
 
 
 def within_range(key: bytes, start: Optional[bytes], end: Optional[bytes]):
