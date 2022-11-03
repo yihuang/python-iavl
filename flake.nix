@@ -10,7 +10,7 @@
 
   outputs = { self, nixpkgs, flake-utils, rocksdb-src }:
     let
-      overrides = { poetry2nix, rocksdb, lib }: poetry2nix.overrides.withDefaults
+      overrides = { poetry2nix, rocksdb, leveldb, lib }: poetry2nix.overrides.withDefaults
         (lib.composeManyExtensions [
           (self: super:
             let
@@ -30,17 +30,22 @@
             rocksdb = super.rocksdb.overridePythonAttrs (old: {
               buildInputs = (old.buildInputs or [ ]) ++ [ rocksdb ];
             });
+            plyvel = super.plyvel.overridePythonAttrs (old: {
+              buildInputs = (old.buildInputs or [ ]) ++ [ leveldb ];
+            });
           })
         ]);
-      iavl-env = { callPackage, poetry2nix }:
+      iavl-env = { callPackage, poetry2nix, groups ? [ "rocksdb" ] }:
         poetry2nix.mkPoetryEnv {
           projectDir = ./.;
           overrides = callPackage overrides { };
+          inherit groups;
         };
-      iavl-cli = { poetry2nix, callPackage }:
+      iavl-cli = { poetry2nix, callPackage, groups ? [ "rocksdb" ] }:
         poetry2nix.mkPoetryApplication {
           projectDir = ./.;
           overrides = callPackage overrides { };
+          inherit groups;
         };
     in
     (flake-utils.lib.eachDefaultSystem
@@ -57,7 +62,9 @@
         rec {
           packages = {
             iavl-env = pkgs.callPackage iavl-env { };
+            iavl-env-leveldb = pkgs.callPackage iavl-env { groups = [ "leveldb" ]; };
             iavl-cli = pkgs.callPackage iavl-cli { };
+            iavl-cli-leveldb = pkgs.callPackage iavl-cli { groups = [ "leveldb" ]; };
           };
           defaultPackage = packages.iavl-cli;
           apps = {
@@ -65,9 +72,18 @@
               type = "app";
               program = "${packages.iavl-cli}/bin/iavl";
             };
+            iavl-cli-leveldb = {
+              type = "app";
+              program = "${packages.iavl-cli-leveldb}/bin/iavl";
+            };
           };
-          devShell = pkgs.mkShell {
-            buildInputs = [ packages.iavl-env ];
+          devShells = {
+            default = pkgs.mkShell {
+              buildInputs = [ packages.iavl-env ];
+            };
+            leveldb = pkgs.mkShell {
+              buildInputs = [ packages.iavl-env-leveldb ];
+            };
           };
         }
       )

@@ -3,10 +3,10 @@ import json
 from typing import List, Optional
 
 import click
-import rocksdb
 from hexbytes import HexBytes
 
-from .utils import (CommitInfo, decode_fast_node, decode_node, diff_iterators,
+from . import dbm
+from .utils import (decode_fast_node, decode_node, diff_iterators,
                     encode_stdint, fast_node_key, iavl_latest_version,
                     iter_fast_nodes, iter_iavl_tree, load_commit_infos,
                     node_key, root_key, store_prefix)
@@ -31,7 +31,7 @@ def root_hash(db, store: List[str], version: Optional[int]):
     """
     if not store:
         raise click.UsageError("no store names are provided")
-    db = rocksdb.DB(str(db), rocksdb.Options(), read_only=True)
+    db = dbm.open(str(db), read_only=True)
     for s in store:
         if version is None:
             version = iavl_latest_version(db, s)
@@ -47,7 +47,7 @@ def node(db, hash, store):
     """
     print the content of a node
     """
-    db = rocksdb.DB(str(db), rocksdb.Options(), read_only=True)
+    db = dbm.open(str(db), read_only=True)
     bz = db.get(store_prefix(store) + node_key(HexBytes(hash)))
     node, _ = decode_node(bz)
     print(json.dumps(node.as_json()))
@@ -63,7 +63,7 @@ def fast_node(db, key, store):
     """
     if not store:
         raise click.UsageError("no store names are provided")
-    db = rocksdb.DB(str(db), rocksdb.Options(), read_only=True)
+    db = dbm.open(str(db), read_only=True)
     bz = db.get(store_prefix(store) + fast_node_key(HexBytes(key)))
     version, value, _ = decode_fast_node(bz)
     print(f"updated at: {version}, value: {HexBytes(value).hex()}")
@@ -78,7 +78,7 @@ def metadata(db, store):
     """
     if not store:
         raise click.UsageError("no store names are provided")
-    db = rocksdb.DB(str(db), rocksdb.Options(), read_only=True)
+    db = dbm.open(str(db), read_only=True)
     for s in store:
         bz = db.get(store_prefix(s) + b"m" + b"storage_version")
         print(f"{s} storage version: {bz.decode()}")
@@ -91,7 +91,7 @@ def commit_infos(db):
     """
     print latest version and commit infos of rootmulti store
     """
-    db = rocksdb.DB(str(db), rocksdb.Options(), read_only=True)
+    db = dbm.open(str(db), read_only=True)
 
     res = load_commit_infos(db)
     print(f"latest version: {res.version}")
@@ -123,7 +123,7 @@ def range_iavl(db, store, version, start, end, output_value):
         start = HexBytes(start)
     if end is not None:
         end = HexBytes(end)
-    db = rocksdb.DB(str(db), rocksdb.Options(), read_only=True)
+    db = dbm.open(str(db), read_only=True)
 
     # find root node first
     if version is None:
@@ -152,7 +152,7 @@ def range_fastnode(db, store, start, end, output_value):
         start = HexBytes(start)
     if end is not None:
         end = HexBytes(end)
-    db = rocksdb.DB(str(db), rocksdb.Options(), read_only=True)
+    db = dbm.open(str(db), read_only=True)
     for k, v in iter_fast_nodes(db, store, start, end):
         if output_value:
             print(f"{HexBytes(k).hex()} {HexBytes(v).hex()}")
@@ -177,7 +177,7 @@ def diff_fastnode(db, store, start, end, output_value):
         start = HexBytes(start)
     if end is not None:
         end = HexBytes(end)
-    db = rocksdb.DB(str(db), rocksdb.Options(), read_only=True)
+    db = dbm.open(str(db), read_only=True)
     it1 = iter_fast_nodes(db, store, start, end)
 
     # find root node first
@@ -215,27 +215,26 @@ def fast_rollback(
     1. Delete the root nodes of iavl tree
     2. Update latest version of multistore
     """
-    db = rocksdb.DB(str(db), rocksdb.Options())
+    db = dbm.open(str(db))
     info = load_commit_infos(db)
     if target is None:
         target = info.version - 1
     assert target < info.version, f"can't rollback to {target}, latest {info.version}"
 
     print("rollback to", target)
-    batch = rocksdb.WriteBatch()
-    for info in info.store_infos:
-        if info.commit_id.version == 0:
-            # not iavl store
-            continue
+    with dbm.WriteBatch(db) as batch:
+        for info in info.store_infos:
+            if info.commit_id.version == 0:
+                # not iavl store
+                continue
 
-        prefix = store_prefix(info.name)
-        ver = iavl_latest_version(db, info.name)
-        for v in range(ver, target, -1):
-            print(f"delete root node, version: {v}, store: {info.name}")
-            batch.delete(prefix + root_key(v))
-    batch.put(b"s/latest", encode_stdint(target))
-    db.write(batch)
-    print(f"update latest version to {target}")
+            prefix = store_prefix(info.name)
+            ver = iavl_latest_version(db, info.name)
+            for v in range(ver, target, -1):
+                print(f"delete root node, version: {v}, store: {info.name}")
+                batch.delete(prefix + root_key(v))
+        batch.put(b"s/latest", encode_stdint(target))
+        print(f"update latest version to {target}")
 
 
 if __name__ == "__main__":

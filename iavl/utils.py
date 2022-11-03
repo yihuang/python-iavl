@@ -4,8 +4,9 @@ from collections.abc import Iterator
 from typing import Callable, List, NamedTuple, Optional, Tuple
 
 import cprotobuf
-import rocksdb
 from hexbytes import HexBytes
+
+from .dbm import DBM
 
 EMPTY_HASH = hashlib.sha256().digest()
 
@@ -108,18 +109,21 @@ def store_prefix(s: str) -> bytes:
     return b"s/k:%s/" % s.encode()
 
 
-def prev_version(db: rocksdb.DB, store: str, v: int) -> Optional[int]:
-    it = db.iterkeys()
+def prev_version(db: DBM, store: str, v: int) -> Optional[int]:
+    it = reversed(db.iterkeys())
     prefix = store_prefix(store)
-    it.seek_for_prev(prefix + root_key(v))
+    target = prefix + root_key(v)
+    it.seek(target)
     k = next(it)
+    if k >= target:
+        k = next(it)
     if not k.startswith(prefix + b"r"):
         return
     # parse version from key
     return int.from_bytes(k[len(prefix) + 1 :], "big")
 
 
-def iavl_latest_version(db: rocksdb.DB, store: str) -> int:
+def iavl_latest_version(db: DBM, store: str) -> int:
     return prev_version(db, store, 1 << 63 - 1)
 
 
@@ -164,9 +168,7 @@ def decode_fast_node(bz: bytes) -> (int, bytes, int):
     return version, value, offset
 
 
-def iter_fast_nodes(
-    db: rocksdb.DB, store: str, start: Optional[bytes], end: Optional[bytes]
-):
+def iter_fast_nodes(db: DBM, store: str, start: Optional[bytes], end: Optional[bytes]):
     """
     normal kv db iteration
     end is exclusive if provided.
@@ -199,7 +201,7 @@ def within_range(key: bytes, start: Optional[bytes], end: Optional[bytes]):
 
 
 def iter_iavl_tree(
-    db: rocksdb.DB,
+    db: DBM,
     store: str,
     node_hash: bytes,
     start: Optional[bytes],
@@ -286,7 +288,7 @@ def diff_iterators(it1, it2):
             yield 2, k2, v2
 
 
-def load_commit_infos(db: rocksdb.DB) -> CommitInfo:
+def load_commit_infos(db: DBM) -> CommitInfo:
     bz = db.get(b"s/latest")
     version, _ = cprotobuf.decode_primitive(bz[1:], "uint64")
     bz = db.get(f"s/{version}".encode())
