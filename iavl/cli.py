@@ -1,4 +1,5 @@
 import binascii
+import json
 from typing import List, Optional
 
 import click
@@ -6,8 +7,9 @@ import cprotobuf
 import rocksdb
 from hexbytes import HexBytes
 
-from .utils import (CommitInfo, decode_bytes, fast_node_key,
-                    iavl_latest_version, node_key, root_key, store_prefix)
+from .utils import (CommitInfo, decode_fast_node, decode_node, diff_iterators,
+                    fast_node_key, iavl_latest_version, iter_fast_nodes,
+                    iter_iavl_tree, node_key, root_key, store_prefix)
 
 
 @click.group
@@ -47,36 +49,8 @@ def node(db, hash, store):
     """
     db = rocksdb.DB(str(db), rocksdb.Options(), read_only=True)
     bz = db.get(store_prefix(store) + node_key(HexBytes(hash)))
-    offset = 0
-    height, n = cprotobuf.decode_primitive(bz[offset:], "int64")
-    offset += n
-    size, n = cprotobuf.decode_primitive(bz[offset:], "int64")
-    offset += n
-    version, n = cprotobuf.decode_primitive(bz[offset:], "int64")
-    offset += n
-    key, n = decode_bytes(bz[offset:])
-    offset += n
-
-    print(
-        f"height: {height}, size: {size}, version: {version}, "
-        f"key: {HexBytes(key).hex()}, ",
-        end="",
-    )
-    if height == 0:
-        # leaf node, read value
-        value, n = decode_bytes(bz[offset:])
-        offset += n
-        print(f"value: {HexBytes(value).hex()}")
-    else:
-        # container node, read children
-        left_hash, n = decode_bytes(bz[offset:])
-        offset += n
-        right_hash, n = decode_bytes(bz[offset:])
-        offset += n
-        print(
-            f"left hash: {HexBytes(left_hash).hex()}, "
-            f"right hash: {HexBytes(right_hash).hex()}"
-        )
+    node, _ = decode_node(bz)
+    print(json.dumps(node.as_json()))
 
 
 @cli.command()
@@ -91,25 +65,8 @@ def fast_node(db, key, store):
         raise click.UsageError("no store names are provided")
     db = rocksdb.DB(str(db), rocksdb.Options(), read_only=True)
     bz = db.get(store_prefix(store) + fast_node_key(HexBytes(key)))
-    offset = 0
-    version, n = cprotobuf.decode_primitive(bz[offset:], "int64")
-    offset += n
-    value, _ = decode_bytes(bz[offset:])
+    version, value, _ = decode_fast_node(bz)
     print(f"updated at: {version}, value: {HexBytes(value).hex()}")
-
-
-@cli.command()
-@click.option("--db", help="path to application.db", type=click.Path(exists=True))
-@click.option("--store", "-s", multiple=True)
-def latest_version(db, store):
-    """
-    print latest versions of iavl stores
-    """
-    if not store:
-        raise click.UsageError("no store names are provided")
-    db = rocksdb.DB(str(db), rocksdb.Options(), read_only=True)
-    for s in store:
-        print(f"{s}: {iavl_latest_version(db, s)}")
 
 
 @cli.command()
@@ -117,12 +74,15 @@ def latest_version(db, store):
 @click.option("--store", "-s", multiple=True)
 def metadata(db, store):
     """
-    print storage version of iavl stores
+    print storage version and latest version of iavl stores
     """
+    if not store:
+        raise click.UsageError("no store names are provided")
     db = rocksdb.DB(str(db), rocksdb.Options(), read_only=True)
     for s in store:
         bz = db.get(store_prefix(s) + b"m" + b"storage_version")
         print(f"{s} storage version: {bz.decode()}")
+        print(f"{s} latest version: {iavl_latest_version(db, s)}")
 
 
 @cli.command()
@@ -144,6 +104,93 @@ def commit_infos(db):
             f"store name: {info.name}, version: {info.commit_id.version}, hash: "
             f"{HexBytes(info.commit_id.hash).hex()}"
         )
+
+
+@cli.command()
+@click.option("--db", help="path to application.db", type=click.Path(exists=True))
+@click.option("--store", "-s")
+@click.option(
+    "--version",
+    help="the version to query, default to latest version if not provided",
+    type=click.INT,
+)
+@click.option("--start")
+@click.option("--end")
+@click.option("--output-value", type=click.BOOL)
+def range_iavl(db, store, version, start, end, output_value):
+    """
+    iterate iavl tree
+    """
+    if not store:
+        raise click.UsageError("no store names are provided")
+    if start is not None:
+        start = HexBytes(start)
+    if end is not None:
+        end = HexBytes(end)
+    db = rocksdb.DB(str(db), rocksdb.Options(), read_only=True)
+
+    # find root node first
+    if version is None:
+        version = iavl_latest_version(db, store)
+    root_hash = db.get(store_prefix(store) + root_key(version))
+    for k, v in iter_iavl_tree(db, store, root_hash, start, end):
+        if output_value:
+            print(f"{HexBytes(k).hex()} {HexBytes(v).hex()}")
+        else:
+            print(HexBytes(k).hex())
+
+
+@cli.command()
+@click.option("--db", help="path to application.db", type=click.Path(exists=True))
+@click.option("--store", "-s")
+@click.option("--start")
+@click.option("--end")
+@click.option("--output-value", type=click.BOOL)
+def range_fastnode(db, store, start, end, output_value):
+    """
+    iterate fast node index
+    """
+    if not store:
+        raise click.UsageError("no store names are provided")
+    if start is not None:
+        start = HexBytes(start)
+    if end is not None:
+        end = HexBytes(end)
+    db = rocksdb.DB(str(db), rocksdb.Options(), read_only=True)
+    for k, v in iter_fast_nodes(db, store, start, end):
+        if output_value:
+            print(f"{HexBytes(k).hex()} {HexBytes(v).hex()}")
+        else:
+            print(HexBytes(k).hex())
+
+
+@cli.command()
+@click.option("--db", help="path to application.db", type=click.Path(exists=True))
+@click.option("--store", "-s")
+@click.option("--start")
+@click.option("--end")
+def diff_fastnode(db, store, start, end):
+    """
+    compare fast node index with latest iavl tree version,
+    to see if there are any differences.
+    """
+    if not store:
+        raise click.UsageError("no store names are provided")
+    if start is not None:
+        start = HexBytes(start)
+    if end is not None:
+        end = HexBytes(end)
+    db = rocksdb.DB(str(db), rocksdb.Options(), read_only=True)
+    it1 = iter_fast_nodes(db, store, start, end)
+
+    # find root node first
+    version = iavl_latest_version(db, store)
+    root_hash = db.get(store_prefix(store) + root_key(version))
+    it2 = iter_iavl_tree(db, store, root_hash, start, end)
+
+    for left, k, v in diff_iterators(it1, it2):
+        flag = "-" if left else "+"
+        print(f"{flag} {HexBytes(k).hex()}")
 
 
 if __name__ == "__main__":
