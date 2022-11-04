@@ -58,6 +58,18 @@ class Node(NamedTuple):
         return decode_node(bz)
 
 
+class NodeKey2(NamedTuple):
+    version: int
+    nonce: int
+
+    def encode(self):
+        return self.version.to_bytes(8, "big") + self.nonce.to_bytes(4, "big")
+
+    @classmethod
+    def decode(cls, bz: bytes):
+        return cls(int.from_bytes(bz[:8], "big"), int.from_bytes(bz[8:], "big"))
+
+
 class Node2(NamedTuple):
     """
     node format described in https://github.com/cosmos/iavl/pull/608
@@ -68,10 +80,10 @@ class Node2(NamedTuple):
     hash: bytes
     key: bytes
     value: Optional[bytes]
-    left_child_version: Optional[int]
-    left_child_nonce: Optional[int]
-    right_child_version: Optional[int]
-    right_child_nonce: Optional[int]
+    left_child: Optional[NodeKey2]
+    right_child: Optional[NodeKey2]
+
+    node_key: NodeKey2  # not in stored value
 
     def is_leaf(self):
         return self.height == 0
@@ -91,15 +103,58 @@ class Node2(NamedTuple):
             ]
         else:
             parts += [
-                cprotobuf.encode_primitive("uint64", self.left_child_version),
-                cprotobuf.encode_primitive("uint64", self.left_child_nonce),
-                cprotobuf.encode_primitive("uint64", self.right_child_version),
-                cprotobuf.encode_primitive("uint64", self.right_child_nonce),
+                cprotobuf.encode_primitive("uint64", self.left_child.version),
+                cprotobuf.encode_primitive("uint64", self.left_child.nonce),
+                cprotobuf.encode_primitive("uint64", self.right_child.version),
+                cprotobuf.encode_primitive("uint64", self.right_child.nonce),
             ]
         return b"".join(parts)
 
     @classmethod
-    def from_legacy_node(cls, hash: bytes, node: Node, node_map):
+    def decode(cls, bz: bytes, node_key: NodeKey2):
+        offset = 0
+
+        height, n = cprotobuf.decode_primitive(bz[offset:], "uint64")
+        offset += n
+
+        size, n = cprotobuf.decode_primitive(bz[offset:], "uint64")
+        offset += n
+
+        hash = bz[offset : offset + 32]
+        offset += 32
+
+        key, n = decode_bytes(bz[offset:])
+        offset += n
+
+        value = left_child = right_child = None
+        if height == 0:
+            # leaf node
+            value, n = decode_bytes(bz[offset:])
+            offset += n
+        else:
+            version, n = cprotobuf.decode_primitive(bz[offset:], "uint64")
+            offset += n
+            nonce, n = cprotobuf.decode_primitive(bz[offset:], "uint64")
+            offset += n
+            left_child = NodeKey2(version, nonce)
+            version, n = cprotobuf.decode_primitive(bz[offset:], "uint64")
+            offset += n
+            nonce, n = cprotobuf.decode_primitive(bz[offset:], "uint64")
+            offset += n
+            right_child = NodeKey2(version, nonce)
+        return cls(
+            height=height,
+            size=size,
+            hash=hash,
+            key=key,
+            value=value,
+            left_child=left_child,
+            right_child=right_child,
+            node_key=node_key,
+        )
+
+    @classmethod
+    def from_legacy_node(cls, node_key: NodeKey2, hash: bytes, node: Node, node_map):
         left_child_version = (
             left_child_nonce
         ) = right_child_version = right_child_nonce = None
@@ -117,6 +172,7 @@ class Node2(NamedTuple):
             left_child_nonce=left_child_nonce,
             right_child_version=right_child_version,
             right_child_nonce=right_child_nonce,
+            node_key=node_key,
         )
 
 
@@ -405,3 +461,63 @@ def encode_stdint(n: int) -> bytes:
     o = StdInt()
     o.value = n
     return bytes(o.SerializeToString())
+
+
+def iter_iavl2_tree(
+    db: DBM,
+    store: str,
+    root_key: NodeKey2,
+    start: Optional[bytes],
+    end: Optional[bytes],
+):
+    prefix = store_prefix(store)
+
+    def get_node(nkey: NodeKey2) -> Node:
+        n, _ = Node2.decode(db.get(prefix + nkey.encode()), nkey)
+        return n
+
+    def prune_check(node: Node2) -> (bool, bool):
+        prune_left = start is not None and node.key <= start
+        prune_right = end is not None and node.key >= end
+        return prune_left, prune_right
+
+    for _, node in visit_iavl2_nodes(get_node, prune_check, root_key):
+        if node.is_leaf() and within_range(node.key, start, end):
+            yield node.key, node.value
+
+
+def visit_iavl2_nodes(
+    get_node: Callable[NodeKey2, Node2],
+    prune_check: Callable[Node2, Tuple[bool, bool]],
+    nodekey: bytes,
+    preorder: bool = True,
+):
+    """
+    tree traversal, preorder or postorder
+
+    get_node: load node by nodekey.
+    prune_check: decide should we prune left child and right child
+    """
+    stack: List[NodeKey2] = [nodekey]
+    while stack:
+        nodekey = stack.pop()
+        if isinstance(nodekey, tuple):
+            # already expanded, (nodekey, node)
+            yield nodekey
+            continue
+
+        node = get_node(nodekey)
+
+        if not preorder:
+            # postorder, visit later
+            stack.append((nodekey, node))
+
+        if not node.is_leaf():
+            prune_left, prune_right = prune_check(node)
+            if not prune_right:
+                stack.append(node.right_child)
+            if not prune_left:
+                stack.append(node.left_child)
+
+        if preorder:
+            yield nodekey, node

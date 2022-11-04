@@ -6,7 +6,7 @@ import click
 from hexbytes import HexBytes
 
 from . import dbm
-from .utils import (decode_fast_node, decode_node, diff_iterators,
+from .utils import (NodeKey2, decode_fast_node, decode_node, diff_iterators,
                     encode_stdint, fast_node_key, iavl_latest_version,
                     iter_fast_nodes, iter_iavl_tree, load_commit_infos,
                     node_key, root_key, store_prefix)
@@ -250,11 +250,45 @@ def fast_rollback(
 )
 @click.option("--store", "-s")
 def convert_iavl2(db, target_db, store):
-    from .convert_iavl2 import convert
+    from .iavl2 import convert
 
     db = dbm.open(db, read_only=True)
     db2 = dbm.open(target_db, create_if_missing=True)
     convert(db, db2, store)
+
+
+@cli.command()
+@click.option("--db", help="path to application.db", type=click.Path(exists=True))
+@click.option("--store", "-s")
+@click.option(
+    "--version",
+    help="the version to query, default to latest version if not provided",
+    type=click.INT,
+)
+@click.option("--start")
+@click.option("--end")
+@click.option("--output-value", is_flag=True, default=False)
+def range_iavl2(db, store, version, start, end, output_value):
+    """
+    iterate iavl2 tree
+    """
+    if not store:
+        raise click.UsageError("no store names are provided")
+    if start is not None:
+        start = HexBytes(start)
+    if end is not None:
+        end = HexBytes(end)
+    db = dbm.open(str(db), read_only=True)
+
+    # find root node first
+    if version is None:
+        version = iavl_latest_version(db, store)
+    root_key = NodeKey2(version, 0)
+    for k, v in iter_iavl_tree(db, store, root_key, start, end):
+        if output_value:
+            print(f"{HexBytes(k).hex()} {HexBytes(v).hex()}")
+        else:
+            print(HexBytes(k).hex())
 
 
 if __name__ == "__main__":

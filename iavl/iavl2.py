@@ -4,10 +4,11 @@ https://github.com/cosmos/iavl/pull/608
 Experiment with the logic converting iavl tree to new node key,
 to see how much disk space can be saved.
 """
+from typing import Callable, List, Tuple
 
 from . import dbm
-from .utils import (Node, Node2, decode_node, iavl_latest_version, node_key,
-                    root_key, store_prefix, visit_iavl_nodes)
+from .utils import (Node, Node2, NodeKey2, decode_node, iavl_latest_version,
+                    node_key, root_key, store_prefix, visit_iavl_nodes)
 
 
 def convert(db: dbm.DBM, db2: dbm.DBM, store: str):
@@ -43,8 +44,9 @@ def convert(db: dbm.DBM, db2: dbm.DBM, store: str):
 
         with dbm.WriteBatch(db2) as batch:
             for nonce, (hash, node) in enumerate(pending):
-                node2 = Node2.from_legacy_node(hash, node, node_map)
+                nkey = NodeKey2(v, nonce)
+                node2 = Node2.from_legacy_node(nkey, hash, node, node_map)
                 batch.put(
-                    v.to_bytes(8, "big") + nonce.to_bytes(4, "big"),
+                    nkey.encode(),
                     node2.encode(),
                 )
