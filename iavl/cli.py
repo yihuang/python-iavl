@@ -36,7 +36,7 @@ def root_hash(db, store: List[str], version: Optional[int]):
         if version is None:
             version = iavl_latest_version(db, s)
         bz = db.get(store_prefix(s) + root_key(version))
-        print(f"{s}: {binascii.hexlify(bz).decode()}")
+        print(f"{s}: {binascii.hexlify(bz or b'').decode()}")
 
 
 @cli.command()
