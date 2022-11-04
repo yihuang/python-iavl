@@ -243,12 +243,18 @@ def fast_rollback(
 
 @cli.command()
 @click.option("--db", help="path to application.db", type=click.Path(exists=True))
+@click.option(
+    "--target-db",
+    help="path to target db, create if missing",
+    type=click.Path(exists=True),
+)
 @click.option("--store", "-s")
-def convert_iavl2(db, store):
+def convert_iavl2(db, target_db, store):
     from .convert_iavl2 import convert
 
     db = dbm.open(db, read_only=True)
-    convert(db, store)
+    db2 = dbm.open(target_db, create_if_missing=True)
+    convert(db, db2, store)
 
 
 if __name__ == "__main__":

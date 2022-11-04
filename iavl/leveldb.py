@@ -51,8 +51,8 @@ class LevelDB:
         return Iterator(self.db)
 
 
-def open(dir, read_only: bool = False):
-    return LevelDB(plyvel.DB(str(dir)))
+def open(dir, read_only: bool = False, create_if_missing=False):
+    return LevelDB(plyvel.DB(str(dir)), create_if_missing=create_if_missing)
 
 
 def WriteBatch(db):

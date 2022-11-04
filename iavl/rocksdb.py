@@ -25,5 +25,9 @@ class WriteBatch:
             self.batch.close()
 
 
-def open(dir, read_only: bool = False):
-    return rocksdb.DB(str(dir), rocksdb.Options(), read_only=read_only)
+def open(dir, read_only: bool = False, create_if_missing=False):
+    return rocksdb.DB(
+        str(dir),
+        rocksdb.Options(create_if_missing=create_if_missing),
+        read_only=read_only,
+    )
