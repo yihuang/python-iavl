@@ -53,6 +53,72 @@ class Node(NamedTuple):
             d["right_child"] = HexBytes(self.right_child).hex()
         return d
 
+    @staticmethod
+    def decode(bz: bytes):
+        return decode_node(bz)
+
+
+class Node2(NamedTuple):
+    """
+    node format described in https://github.com/cosmos/iavl/pull/608
+    """
+
+    height: int  # height of subtree
+    size: int  # size of subtree
+    hash: bytes
+    key: bytes
+    value: Optional[bytes]
+    left_child_version: Optional[int]
+    left_child_nonce: Optional[int]
+    right_child_version: Optional[int]
+    right_child_nonce: Optional[int]
+
+    def is_leaf(self):
+        return self.height == 0
+
+    def encode(self):
+        parts = [
+            cprotobuf.encode_primitive("uint64", self.height),
+            cprotobuf.encode_primitive("uint64", self.size),
+            self.hash,
+            cprotobuf.encode_primitive("uint64", len(self.key)),
+            self.key,
+        ]
+        if self.is_leaf():
+            parts += [
+                cprotobuf.encode_primitive("uint64", len(self.value)),
+                self.value,
+            ]
+        else:
+            parts += [
+                cprotobuf.encode_primitive("uint64", self.left_child_version),
+                cprotobuf.encode_primitive("uint64", self.left_child_nonce),
+                cprotobuf.encode_primitive("uint64", self.right_child_version),
+                cprotobuf.encode_primitive("uint64", self.right_child_nonce),
+            ]
+        return b"".join(parts)
+
+    @classmethod
+    def from_legacy_node(cls, hash: bytes, node: Node, node_map):
+        left_child_version = (
+            left_child_nonce
+        ) = right_child_version = right_child_nonce = None
+        if node.left_child:
+            left_child_version, left_child_nonce = node_map[node.left_child]
+        if node.right_child:
+            right_child_version, right_child_nonce = node_map[node.right_child]
+        return cls(
+            height=node.height,
+            size=node.size,
+            hash=hash,
+            key=node.key,
+            value=node.value,
+            left_child_version=left_child_version,
+            left_child_nonce=left_child_nonce,
+            right_child_version=right_child_version,
+            right_child_nonce=right_child_nonce,
+        )
+
 
 def incr_bytes(prefix: bytes) -> bytes:
     bz = list(prefix)
