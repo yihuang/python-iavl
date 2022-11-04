@@ -5,16 +5,14 @@ Experiment with the logic converting iavl tree to new node key,
 to see how much disk space can be saved.
 """
 
-import lmdb
 import snappy
-from hexbytes import HexBytes
 
 from . import dbm
 from .utils import (Node, Node2, decode_node, iavl_latest_version, node_key,
                     root_key, store_prefix, visit_iavl_nodes)
 
 
-def convert_to_lmdb(db: dbm.DBM, store: str):
+def convert(db: dbm.DBM, store: str):
     prefix = store_prefix(store)
     version = iavl_latest_version(db, store)
 
@@ -61,6 +59,5 @@ if __name__ == "__main__":
     import sys
 
     db1 = dbm.open(sys.argv[1], read_only=True)
-    # db2 = lmdb.open(sys.argv[2], max_dbs=1024)
     store = sys.argv[2]
-    convert_to_lmdb(db1, store)
+    convert(db1, store)

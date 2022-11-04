@@ -241,5 +241,15 @@ def fast_rollback(
         print(f"update latest version to {target}")
 
 
+@cli.command()
+@click.option("--db", help="path to application.db", type=click.Path(exists=True))
+@click.option("--store", "-s")
+def convert_iavl2(db, store):
+    from .convert_iavl2 import convert
+
+    db = dbm.open(db, read_only=True)
+    convert(db, store)
+
+
 if __name__ == "__main__":
     cli()
