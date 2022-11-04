@@ -135,11 +135,11 @@ def decode_bytes(bz: bytes) -> (bytes, int):
 
 def decode_node(bz: bytes) -> (Node, int):
     offset = 0
-    height, n = cprotobuf.decode_primitive(bz[offset:], "int64")
+    height, n = cprotobuf.decode_primitive(bz[offset:], "sint64")
     offset += n
-    size, n = cprotobuf.decode_primitive(bz[offset:], "int64")
+    size, n = cprotobuf.decode_primitive(bz[offset:], "sint64")
     offset += n
-    version, n = cprotobuf.decode_primitive(bz[offset:], "int64")
+    version, n = cprotobuf.decode_primitive(bz[offset:], "sint64")
     offset += n
     key, n = decode_bytes(bz[offset:])
     offset += n
@@ -161,7 +161,7 @@ def decode_node(bz: bytes) -> (Node, int):
 
 def decode_fast_node(bz: bytes) -> (int, bytes, int):
     offset = 0
-    version, n = cprotobuf.decode_primitive(bz[offset:], "int64")
+    version, n = cprotobuf.decode_primitive(bz[offset:], "sint64")
     offset += n
     value, n = decode_bytes(bz[offset:])
     offset += n
