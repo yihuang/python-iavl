@@ -156,7 +156,18 @@ def decode_node(bz: bytes) -> (Node, int):
         offset += n
         right_hash, n = decode_bytes(bz[offset:])
         offset += n
-    return Node(height, size, version, key, value, left_hash, right_hash), offset
+    return (
+        Node(
+            height=height,
+            size=size,
+            version=version,
+            key=key,
+            value=value,
+            left_child=left_hash,
+            right_child=right_hash,
+        ),
+        offset,
+    )
 
 
 def decode_fast_node(bz: bytes) -> (int, bytes, int):
@@ -222,7 +233,7 @@ def iter_iavl_tree(
         prune_right = end is not None and key >= end
         return prune_left, prune_right
 
-    for node in visit_iavl_nodes(get_node, prune_check, node_hash):
+    for _, node in visit_iavl_nodes(get_node, prune_check, node_hash):
         if node.is_leaf() and within_range(node.key, start, end):
             yield node.key, node.value
 
@@ -231,14 +242,28 @@ def visit_iavl_nodes(
     get_node: Callable[bytes, Node],
     prune_check: Callable[bytes, Tuple[bool, bool]],
     hash: bytes,
+    preorder: bool = True,
 ):
     """
+    tree traversal, preorder or postorder
+
     get_node: load node by hash.
     prune_check: decide should we prune left child and right child
     """
     stack: List[bytes] = [hash]
     while stack:
-        node = get_node(stack.pop())
+        hash = stack.pop()
+        if isinstance(hash, tuple):
+            # already expanded, (hash, node)
+            yield hash
+            continue
+
+        node = get_node(hash)
+
+        if not preorder:
+            # postorder, visit later
+            stack.append((hash, node))
+
         if not node.is_leaf():
             prune_left, prune_right = prune_check(node.key)
             if not prune_right:
@@ -246,8 +271,8 @@ def visit_iavl_nodes(
             if not prune_left:
                 stack.append(node.left_child)
 
-        # preorder traversal
-        yield node
+        if preorder:
+            yield hash, node
 
 
 def diff_iterators(it1, it2):
