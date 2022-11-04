@@ -7,9 +7,10 @@ from hexbytes import HexBytes
 
 from . import dbm
 from .utils import (NodeKey2, decode_fast_node, decode_node, diff_iterators,
-                    encode_stdint, fast_node_key, iavl_latest_version,
-                    iter_fast_nodes, iter_iavl_tree, load_commit_infos,
-                    node_key, root_key, store_prefix)
+                    encode_stdint, fast_node_key, iavl2_latest_version,
+                    iavl_latest_version, iter_fast_nodes, iter_iavl2_tree,
+                    iter_iavl_tree, load_commit_infos, node_key, root_key,
+                    store_prefix)
 
 
 @click.group
@@ -282,9 +283,9 @@ def range_iavl2(db, store, version, start, end, output_value):
 
     # find root node first
     if version is None:
-        version = iavl_latest_version(db, store)
+        version = iavl2_latest_version(db, store)
     root_key = NodeKey2(version, 0)
-    for k, v in iter_iavl_tree(db, store, root_key, start, end):
+    for k, v in iter_iavl2_tree(db, store, root_key, start, end):
         if output_value:
             print(f"{HexBytes(k).hex()} {HexBytes(v).hex()}")
         else:

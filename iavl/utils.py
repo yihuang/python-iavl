@@ -142,36 +142,35 @@ class Node2(NamedTuple):
             nonce, n = cprotobuf.decode_primitive(bz[offset:], "uint64")
             offset += n
             right_child = NodeKey2(version, nonce)
-        return cls(
-            height=height,
-            size=size,
-            hash=hash,
-            key=key,
-            value=value,
-            left_child=left_child,
-            right_child=right_child,
-            node_key=node_key,
+        return (
+            cls(
+                height=height,
+                size=size,
+                hash=hash,
+                key=key,
+                value=value,
+                left_child=left_child,
+                right_child=right_child,
+                node_key=node_key,
+            ),
+            offset,
         )
 
     @classmethod
     def from_legacy_node(cls, node_key: NodeKey2, hash: bytes, node: Node, node_map):
-        left_child_version = (
-            left_child_nonce
-        ) = right_child_version = right_child_nonce = None
+        left_child = right_child = None
         if node.left_child:
-            left_child_version, left_child_nonce = node_map[node.left_child]
+            left_child = node_map[node.left_child]
         if node.right_child:
-            right_child_version, right_child_nonce = node_map[node.right_child]
+            right_child = node_map[node.right_child]
         return cls(
             height=node.height,
             size=node.size,
             hash=hash,
             key=node.key,
             value=node.value,
-            left_child_version=left_child_version,
-            left_child_nonce=left_child_nonce,
-            right_child_version=right_child_version,
-            right_child_nonce=right_child_nonce,
+            left_child=left_child,
+            right_child=right_child,
             node_key=node_key,
         )
 
@@ -234,9 +233,13 @@ def store_prefix(s: str) -> bytes:
 def prev_version(db: DBM, store: str, v: int) -> Optional[int]:
     it = reversed(db.iterkeys())
     prefix = store_prefix(store)
-    target = prefix + root_key(v)
+    target = incr_bytes(prefix + b"r")
     it.seek(target)
-    k = next(it)
+    try:
+        k = next(it)
+    except StopIteration:
+        it.seek_to_last()
+        k = next(it)
     if k >= target:
         k = next(it)
     if not k.startswith(prefix + b"r"):
@@ -247,6 +250,24 @@ def prev_version(db: DBM, store: str, v: int) -> Optional[int]:
 
 def iavl_latest_version(db: DBM, store: str) -> int:
     return prev_version(db, store, 1 << 63 - 1)
+
+
+def iavl2_latest_version(db: DBM, store: str) -> int:
+    it = reversed(db.iterkeys())
+    prefix = store_prefix(store)
+    target = incr_bytes(prefix)
+    it.seek(target)
+    try:
+        k = next(it)
+    except StopIteration:
+        it.seek_to_last()
+        k = next(it)
+    if k >= target:
+        k = next(it)
+    if not k.startswith(prefix):
+        return
+    # parse version from key
+    return NodeKey2.decode(k[len(prefix) :]).version
 
 
 def decode_bytes(bz: bytes) -> (bytes, int):
@@ -472,8 +493,11 @@ def iter_iavl2_tree(
 ):
     prefix = store_prefix(store)
 
-    def get_node(nkey: NodeKey2) -> Node:
-        n, _ = Node2.decode(db.get(prefix + nkey.encode()), nkey)
+    def get_node(nkey: NodeKey2) -> Optional[Node]:
+        bz = db.get(prefix + nkey.encode())
+        if not bz:
+            return None
+        n, _ = Node2.decode(bz, nkey)
         return n
 
     def prune_check(node: Node2) -> (bool, bool):
@@ -501,12 +525,15 @@ def visit_iavl2_nodes(
     stack: List[NodeKey2] = [nodekey]
     while stack:
         nodekey = stack.pop()
-        if isinstance(nodekey, tuple):
+        if not isinstance(nodekey, NodeKey2):
             # already expanded, (nodekey, node)
             yield nodekey
             continue
 
         node = get_node(nodekey)
+        if not node and not stack:
+            # empty root, normal
+            break
 
         if not preorder:
             # postorder, visit later
