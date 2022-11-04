@@ -22,14 +22,17 @@ def convert_to_lmdb(db: dbm.DBM, store: str):
         n, _ = decode_node(db.get(prefix + node_key(hash)))
         return n
 
-    def prune_check(_) -> (bool, bool):
-        # don't prune
-        return False, False
-
     size = 0
     compressed_size = 0
     node_map = {}  # map from node hash to (version, nonce)
     for v in range(0, version + 1):
+
+        def prune_check(node: Node) -> (bool, bool):
+            if node.version < v:
+                # no need to visit children if parent node is old
+                return True, True
+            return False, False
+
         print("versin", v)
         nonce = 0
         root_hash = db.get(store_prefix(store) + root_key(v))

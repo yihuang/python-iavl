@@ -294,9 +294,9 @@ def iter_iavl_tree(
         n, _ = decode_node(db.get(prefix + node_key(hash)))
         return n
 
-    def prune_check(key: bytes) -> (bool, bool):
-        prune_left = start is not None and key <= start
-        prune_right = end is not None and key >= end
+    def prune_check(node: Node) -> (bool, bool):
+        prune_left = start is not None and node.key <= start
+        prune_right = end is not None and node.key >= end
         return prune_left, prune_right
 
     for _, node in visit_iavl_nodes(get_node, prune_check, node_hash):
@@ -306,7 +306,7 @@ def iter_iavl_tree(
 
 def visit_iavl_nodes(
     get_node: Callable[bytes, Node],
-    prune_check: Callable[bytes, Tuple[bool, bool]],
+    prune_check: Callable[Node, Tuple[bool, bool]],
     hash: bytes,
     preorder: bool = True,
 ):
@@ -331,7 +331,7 @@ def visit_iavl_nodes(
             stack.append((hash, node))
 
         if not node.is_leaf():
-            prune_left, prune_right = prune_check(node.key)
+            prune_left, prune_right = prune_check(node)
             if not prune_right:
                 stack.append(node.right_child)
             if not prune_left:
