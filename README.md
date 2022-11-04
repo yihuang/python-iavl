@@ -1,4 +1,4 @@
->  Only support rocksdb right now.
+Default app is for rocksdb backend, use `nix run github:yihuang/python-iavl#iavl-cli-leveldb` for leveldb backend.
 
 ```
 $ nix run github:yihuang/python-iavl -- --help
