@@ -294,7 +294,7 @@ def multistore_latest_version(db: DBM) -> int:
     return version
 
 
-def load_commit_infos(db: DBM, version: Optional[int]) -> CommitInfo:
+def load_commit_infos(db: DBM, version: Optional[int] = None) -> CommitInfo:
     if version is None:
         version = multistore_latest_version(db)
     bz = db.get(f"s/{version}".encode())
