@@ -27,24 +27,24 @@ def convert(db: dbm.DBM, db2: dbm.DBM, store: str):
                 return True, True
             return False, False
 
-        print("versin", v)
-        nonce = 0
+        print("version", v)
         root_hash = db.get(store_prefix(store) + root_key(v))
         if not root_hash:
             continue
+
+        pending = []
+        for hash, node in visit_iavl_nodes(get_node, prune_check, root_hash):
+            assert node.version <= v, f"{node.version} > {v}"
+            if node.version != v:
+                continue
+
+            node_map[hash] = (v, len(pending))
+            pending.append((hash, node))
+
         with dbm.WriteBatch(db2) as batch:
-            for hash, node in visit_iavl_nodes(
-                get_node, prune_check, root_hash, preorder=False
-            ):
-                assert node.version <= v, f"{node.version} > {v}"
-                if node.version != v:
-                    continue
-
+            for nonce, (hash, node) in enumerate(pending):
                 node2 = Node2.from_legacy_node(hash, node, node_map)
-                bz = node2.encode()
-
-                key = (v, nonce)
-                nonce += 1
-                node_map[hash] = key
-
-                batch.put(v.to_bytes(8, "big") + nonce.to_bytes(4, "big"), bz)
+                batch.put(
+                    v.to_bytes(8, "big") + nonce.to_bytes(4, "big"),
+                    node2.encode(),
+                )
