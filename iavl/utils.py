@@ -133,6 +133,13 @@ def decode_bytes(bz: bytes) -> (bytes, int):
     return bz[n : n + l], n + l
 
 
+def encode_bytes(bz: bytes) -> List[bytes]:
+    return [
+        cprotobuf.encode_primitive("uint64", len(bz)),
+        bz,
+    ]
+
+
 def decode_node(bz: bytes) -> (Node, int):
     offset = 0
     height, n = cprotobuf.decode_primitive(bz[offset:], "sint64")
