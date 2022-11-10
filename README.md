@@ -1,9 +1,9 @@
-`python-iavl` implements [iavl tree](https://github.com/cosmos/iavl), and provides a cli tool to inspect the cosmos-sdk application db, can be used for debugging production issues.
+`python-iavl` implements [iavl tree](https://github.com/cosmos/iavl) in python, and provides a cli tool to inspect the cosmos-sdk application db, can be used for debugging production issues, or doing fast rollback.
 
-The cli tool can be run as nix flake on the fly, there are two exposed app, the default one is for rocksdb db backend, the `iavl-cli-leveldb` is for goleveldb backend.
+The cli tool can be run as nix flake on the fly, there are two exposed app, the `iavl-cli`(the default one) is for rocksdb db backend, the `iavl-cli-leveldb` is for goleveldb backend.
 
 ```
-$ nix run github:crypto-com/python-iavl/$GIT_REF#iavl-cli-leveldb -- --help
+$ nix run github:crypto-com/python-iavl/$GIT_REF#iavl-cli -- --help
 Usage: iavl [OPTIONS] COMMAND [ARGS]...
 
 Options:
