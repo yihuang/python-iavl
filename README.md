@@ -1,7 +1,9 @@
-Default app is for rocksdb backend, use `nix run github:yihuang/python-iavl#iavl-cli-leveldb` for leveldb backend.
+`python-iavl` implements [iavl tree](https://github.com/cosmos/iavl), and provides a cli tool to inspect the cosmos-sdk application db, can be used for debugging production issues.
+
+The cli tool can be run as nix flake on the fly, there are two exposed app, the default one is for rocksdb db backend, the `iavl-cli-leveldb` is for goleveldb backend.
 
 ```
-$ nix run github:yihuang/python-iavl -- --help
+$ nix run github:crypto-com/python-iavl/$GIT_REF#iavl-cli-leveldb -- --help
 Usage: iavl [OPTIONS] COMMAND [ARGS]...
 
 Options:
