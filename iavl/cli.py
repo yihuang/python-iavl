@@ -215,7 +215,7 @@ def fast_rollback(
 ):
     """
     A quick and dirty way to rollback chain state,
-    may leave some dirty nodes in db, not a big deal.
+    may leave some orphan nodes in db, not a big deal.
 
     1. Delete the root nodes of iavl tree
     2. Delete related orphan entries
