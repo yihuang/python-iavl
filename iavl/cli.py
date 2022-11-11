@@ -214,10 +214,12 @@ def fast_rollback(
     target: Optional[int],
 ):
     """
-    A quick and dirty way to rollback chain state
+    A quick and dirty way to rollback chain state,
+    may leave some orphan nodes in db, not a big deal.
 
     1. Delete the root nodes of iavl tree
-    2. Update latest version of multistore
+    2. Delete related orphan entries
+    3. Update latest version of multistore
     """
     db = dbm.open(str(db))
     info = load_commit_infos(db)
@@ -234,6 +236,16 @@ def fast_rollback(
 
             prefix = store_prefix(info.name)
             ver = iavl_latest_version(db, info.name)
+
+            print("delete orphan entries created since target version")
+            orphan_prefix = prefix + b"o" + target.to_bytes(8, "big")
+            it = db.iterkeys()
+            it.seek(orphan_prefix)
+            for k in it:
+                if not k.startswith(orphan_prefix):
+                    break
+                batch.delete(k)
+
             for v in range(ver, target, -1):
                 print(f"delete root node, version: {v}, store: {info.name}")
                 batch.delete(prefix + root_key(v))
