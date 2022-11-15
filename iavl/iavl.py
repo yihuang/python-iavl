@@ -1,6 +1,7 @@
 """
 Support modify iavl tree
 """
+import binascii
 import hashlib
 from dataclasses import dataclass
 from typing import Callable, Dict, NamedTuple, Optional, Union
@@ -82,7 +83,7 @@ class Node:
     key: bytes = None
 
     height: int = 0  # height of subtree
-    size: int = 0  # size of subtree
+    size: int = 1  # size of subtree
 
     # only in leaf node
     value: Optional[bytes] = None
@@ -150,9 +151,9 @@ class Node:
     def hash(self):
         "compute hash of this node"
         chunks = [
-            cprotobuf.encode_primitive("uint64", self.height),
-            cprotobuf.encode_primitive("uint64", self.size),
-            cprotobuf.encode_primitive("uint64", self.version),
+            cprotobuf.encode_primitive("sint64", self.height),
+            cprotobuf.encode_primitive("sint64", self.size),
+            cprotobuf.encode_primitive("sint64", self.version),
         ]
         if self.is_leaf():
             chunks += encode_bytes(self.key) + encode_bytes(
@@ -180,7 +181,10 @@ class Node:
         """
         rnode = self.right_node(ndb)
         self.right_node_ref = rnode.left_node_ref
-        return Node.from_branch_node(rnode, version, left_node=self)
+        new = Node.from_branch_node(rnode, version, left_node=self)
+        self.update_height_size(ndb)
+        new.update_height_size(ndb)
+        return new
 
     def rotate_right(self, ndb: NodeDB, version: int):
         r"""
@@ -192,7 +196,10 @@ class Node:
         """
         lnode = self.left_node(ndb)
         self.left_node_ref = lnode.right_node_ref
-        return Node.from_branch_node(lnode, version, right_node=self)
+        new = Node.from_branch_node(lnode, version, right_node=self)
+        self.update_height_size(ndb)
+        new.update_height_size(ndb)
+        return new
 
 
 class Tree:
@@ -352,6 +359,6 @@ class Tree:
         if isinstance(self.root_node_ref, Node):
             self.root_node_ref = self.save_branch(self.root_node_ref, save_node)
         self.version += 1
-        self.ndb.set_root_hash(
-            self.version, self.root_node_ref or hashlib.sha256().digest()
-        )
+        root_hash = self.root_node_ref or hashlib.sha256().digest()
+        self.ndb.set_root_hash(self.version, root_hash)
+        return root_hash
