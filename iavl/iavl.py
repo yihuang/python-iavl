@@ -1,7 +1,6 @@
 """
 Support modify iavl tree
 """
-import binascii
 import hashlib
 from dataclasses import dataclass
 from typing import Callable, Dict, NamedTuple, Optional, Union
@@ -106,8 +105,8 @@ class Node:
         cls,
         node: Union["Node", PersistedNode],
         version: int,
-        left_node: Optional["Node"] = None,
-        right_node: Optional["Node"] = None,
+        left_node_ref: Optional[NodeRef] = None,
+        right_node_ref: Optional[NodeRef] = None,
     ):
         """
         clone a branch node and modify
@@ -122,10 +121,10 @@ class Node:
         )
 
         # override
-        if left_node is not None:
-            res.left_node_ref = left_node
-        if right_node is not None:
-            res.right_node_ref = right_node
+        if left_node_ref is not None:
+            res.left_node_ref = left_node_ref
+        if right_node_ref is not None:
+            res.right_node_ref = right_node_ref
         return res
 
     def persisted(self) -> PersistedNode:
@@ -165,12 +164,6 @@ class Node:
             )
         return hashlib.sha256(b"".join(chunks)).digest()
 
-    def update_height_size(self, ndb: NodeDB):
-        lnode = self.left_node(ndb)
-        rnode = self.right_node(ndb)
-        self.height = max(lnode.height, rnode.height) + 1
-        self.size = lnode.size + rnode.size
-
     def rotate_left(self, ndb: NodeDB, version: int) -> "Node":
         r"""
           S              R
@@ -181,7 +174,7 @@ class Node:
         """
         rnode = self.right_node(ndb)
         self.right_node_ref = rnode.left_node_ref
-        new = Node.from_branch_node(rnode, version, left_node=self)
+        new = Node.from_branch_node(rnode, version, left_node_ref=self)
         self.update_height_size(ndb)
         new.update_height_size(ndb)
         return new
@@ -196,10 +189,41 @@ class Node:
         """
         lnode = self.left_node(ndb)
         self.left_node_ref = lnode.right_node_ref
-        new = Node.from_branch_node(lnode, version, right_node=self)
+        new = Node.from_branch_node(lnode, version, right_node_ref=self)
         self.update_height_size(ndb)
         new.update_height_size(ndb)
         return new
+
+    def update_height_size(self, ndb: NodeDB):
+        lnode = self.left_node(ndb)
+        rnode = self.right_node(ndb)
+        self.height = max(lnode.height, rnode.height) + 1
+        self.size = lnode.size + rnode.size
+
+    def balance(self, ndb: NodeDB, version: int):
+        lnode = self.left_node(ndb)
+        rnode = self.right_node(ndb)
+        balance = lnode.height - rnode.height
+        if balance > 1:
+            lbalance = lnode.left_node(ndb).height - lnode.right_node(ndb).height
+            if lbalance >= 0:
+                # left left
+                return self.rotate_right(ndb, version)
+            else:
+                # left right
+                self.left_node_ref = lnode.rotate_left(ndb, version)
+                return self.rotate_right(ndb, version)
+        elif balance < -1:
+            rbalance = rnode.left_node(ndb).height - rnode.right_node(ndb).height
+            if rbalance < 0:
+                # right right
+                return self.rotate_left(ndb, version)
+            else:
+                # right left
+                self.right_node_ref = rnode.rotate_right(ndb, version)
+                return self.rotate_left(ndb, version)
+        else:
+            return self
 
 
 class Tree:
@@ -214,128 +238,30 @@ class Tree:
         self.root_node_ref = ndb.get_root_hash(version)
 
     def root_node(self):
-        if isinstance(self.root_node_ref, Node):
-            return self.root_node_ref
-        elif self.root_node_ref is not None:
-            return self.ndb.get(self.root_node_ref)
+        return self.ndb.resolve_node(self.root_node_ref)
 
     def set(self, key: bytes, value: bytes):
         if self.root_node_ref is None:
             self.root_node_ref = Node.new_leaf(key, value, self.version + 1)
             return False
-        self.root_node_ref, updated = self.set_recursive(
-            self.root_node_ref, key, value, self.version + 1
+        self.root_node_ref, updated = set_recursive(
+            self.ndb, self.root_node_ref, key, value, self.version + 1
         )
         return updated
-
-    def set_recursive(
-        self, ref: NodeRef, key: bytes, value: bytes, version: int
-    ) -> (Node, bool):
-        """
-        return new node and if it update an existing key.
-        """
-        node = self.ndb.resolve_node(ref)
-        if node.is_leaf():
-            if key < node.key:
-                return (
-                    Node(
-                        version=version,
-                        key=key,
-                        height=1,
-                        size=2,
-                        left_node_ref=Node.new_leaf(key, value, version),
-                        right_node_ref=ref,
-                    ),
-                    False,
-                )
-            elif key > node.key:
-                return (
-                    Node(
-                        version=version,
-                        key=key,
-                        height=1,
-                        size=2,
-                        left_node_ref=ref,
-                        right_node_ref=Node.new_leaf(key, value, version),
-                    ),
-                    False,
-                )
-            else:
-                return Node.new_leaf(key, value, version), True
-        else:
-            if key < node.key:
-                lnode, updated = self.set_recursive(
-                    node.left_node_ref, key, value, version
-                )
-                new = Node.from_branch_node(
-                    node,
-                    version,
-                    left_node=lnode,
-                )
-            else:
-                rnode, updated = self.set_recursive(
-                    node.right_node_ref, key, value, version
-                )
-                new = Node.from_branch_node(
-                    node,
-                    version,
-                    right_node=rnode,
-                )
-
-            if not updated:
-                # tree shape is changed, re-balance
-                new.update_height_size(self.ndb)
-                new = self.balance(new, version)
-
-            return new, updated
 
     def get(self, key: bytes):
         if self.root_node_ref is None:
             return
-        return self.get_recursive(key, self.root_node())
+        return get_recursive(self.ndb, key, self.root_node())
 
-    def get_recursive(
-        self, key: bytes, node: Union[Node, PersistedNode]
-    ) -> Optional[bytes]:
-        if node.is_leaf():
-            if node.key == key:
-                return node.value
-            else:
-                return
-        else:
-            if key < node.key:
-                return self.get_recursive(key, node.left_node(self.ndb))
-            else:
-                return self.get_recursive(key, node.right_node(self.ndb))
-
-    def balance(self, node: Node, version: int):
-        lnode = node.left_node(self.ndb)
-        rnode = node.right_node(self.ndb)
-        balance = lnode.height - rnode.height
-        if balance > 1:
-            lbalance = (
-                lnode.left_node(self.ndb).height - lnode.right_node(self.ndb).height
-            )
-            if lbalance >= 0:
-                # left left
-                return node.rotate_right(self.ndb, version)
-            else:
-                # left right
-                node.left_node_ref = lnode.rotate_left(self.ndb, version)
-                return node.rotate_right(self.ndb, version)
-        elif balance < -1:
-            rbalance = (
-                rnode.left_node(self.ndb).height - rnode.right_node(self.ndb).height
-            )
-            if rbalance < 0:
-                # right right
-                return node.rotate_left(self.ndb, version)
-            else:
-                # right left
-                node.right_node_ref = rnode.rotate_right(self.ndb, version)
-                return node.rotate_left(self.ndb, version)
-        else:
-            return node
+    def remove(self, key: bytes) -> Optional[bytes]:
+        "remove the key and return the value, return None if not found."
+        if self.root_node_ref is None:
+            return
+        value, self.root_node_ref = remove_recursive(
+            self.ndb, key, self.root_node_ref, self.version + 1
+        )
+        return value
 
     def save_branch(
         self, node: Node, save_node: Callable[[bytes, Node], None]
@@ -362,3 +288,122 @@ class Tree:
         root_hash = self.root_node_ref or hashlib.sha256().digest()
         self.ndb.set_root_hash(self.version, root_hash)
         return root_hash
+
+
+def remove_recursive(
+    ndb: NodeDB,
+    key: bytes,
+    ref: NodeRef,
+    version: int,
+) -> (Optional[bytes], Optional[NodeRef]):
+    """
+    returns (removed value, new node if changed)
+    - (None, _) -> nothing changed in subtree
+    - (value, None) -> leaf node is removed
+    - (value, new node) -> subtree changed
+    """
+    node = ndb.resolve_node(ref)
+    if node.is_leaf():
+        if node.key == key:
+            return node.value, None
+        else:
+            return None, None
+    else:
+        turn_left = key < node.key
+        if turn_left:
+            value, new_child = remove_recursive(ndb, key, node.left_node_ref, version)
+        else:
+            value, new_child = remove_recursive(ndb, key, node.right_node_ref, version)
+
+        if value is None:
+            return
+
+        if new_child is None:
+            # return the other child
+            if turn_left:
+                return value, node.right_node_ref
+            else:
+                return value, node.left_node_ref
+        else:
+            # update the subtree
+            if turn_left:
+                new = Node.from_branch_node(node, version, left_node_ref=new_child)
+            else:
+                new = Node.from_branch_node(node, version, right_node_ref=new_child)
+            new.update_height_size(ndb)
+            return value, new.balance(ndb, version)
+
+
+def set_recursive(
+    ndb: NodeDB, ref: NodeRef, key: bytes, value: bytes, version: int
+) -> (Node, bool):
+    """
+    return new node and if it update an existing key.
+    """
+    node = ndb.resolve_node(ref)
+    if node.is_leaf():
+        if key < node.key:
+            return (
+                Node(
+                    version=version,
+                    key=key,
+                    height=1,
+                    size=2,
+                    left_node_ref=Node.new_leaf(key, value, version),
+                    right_node_ref=ref,
+                ),
+                False,
+            )
+        elif key > node.key:
+            return (
+                Node(
+                    version=version,
+                    key=key,
+                    height=1,
+                    size=2,
+                    left_node_ref=ref,
+                    right_node_ref=Node.new_leaf(key, value, version),
+                ),
+                False,
+            )
+        else:
+            return Node.new_leaf(key, value, version), True
+    else:
+        if key < node.key:
+            lnode, updated = set_recursive(ndb, node.left_node_ref, key, value, version)
+            new = Node.from_branch_node(
+                node,
+                version,
+                left_node_ref=lnode,
+            )
+        else:
+            rnode, updated = set_recursive(
+                ndb, node.right_node_ref, key, value, version
+            )
+            new = Node.from_branch_node(
+                node,
+                version,
+                right_node_ref=rnode,
+            )
+
+        if not updated:
+            # tree shape is changed, re-balance
+            new.update_height_size(ndb)
+            new = new.balance(ndb, version)
+
+        return new, updated
+
+
+def get_recursive(
+    ndb: NodeDB, key: bytes, node: Union[Node, PersistedNode]
+) -> Optional[bytes]:
+    if node.is_leaf():
+        if node.key == key:
+            return node.value
+        else:
+            return
+    else:
+        if key < node.key:
+            return get_recursive(ndb, key, node.left_node(ndb))
+        else:
+            return get_recursive(ndb, key, node.right_node(ndb))
