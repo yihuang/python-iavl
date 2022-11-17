@@ -183,12 +183,14 @@ class Node:
         self.height = max(lnode.height, rnode.height) + 1
         self.size = lnode.size + rnode.size
 
+    def calc_balance(self, ndb: NodeDB):
+        return self.left_node(ndb).height - self.right_node(ndb).height
+
     def balance(self, ndb: NodeDB, version: int):
-        lnode = self.left_node(ndb)
-        rnode = self.right_node(ndb)
-        balance = lnode.height - rnode.height
+        balance = self.calc_balance(ndb)
         if balance > 1:
-            lbalance = lnode.left_node(ndb).height - lnode.right_node(ndb).height
+            lnode = self.left_node(ndb)
+            lbalance = lnode.calc_balance(ndb)
             if lbalance >= 0:
                 # left left
                 return self.rotate_right(ndb, version)
@@ -197,7 +199,8 @@ class Node:
                 self.left_node_ref = lnode.rotate_left(ndb, version)
                 return self.rotate_right(ndb, version)
         elif balance < -1:
-            rbalance = rnode.left_node(ndb).height - rnode.right_node(ndb).height
+            rnode = self.right_node(ndb)
+            rbalance = rnode.calc_balance(ndb)
             if rbalance < 0:
                 # right right
                 return self.rotate_left(ndb, version)
@@ -299,7 +302,7 @@ def remove_recursive(
             value, new_child = remove_recursive(ndb, key, node.right_node_ref, version)
 
         if value is None:
-            return
+            return None, None
 
         if new_child is None:
             # return the other child
