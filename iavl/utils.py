@@ -31,27 +31,54 @@ class StdInt(cprotobuf.ProtoEntity):
 
 
 class Node(NamedTuple):
+    """
+    immutable nodes that's loaded from and save to db
+    """
+
     height: int  # height of subtree
     size: int  # size of subtree
-    version: int
+    version: int  # the version created at
     key: bytes
+
+    # only in leaf node
     value: Optional[bytes]
-    left_child: Optional[bytes]
-    right_child: Optional[bytes]
+
+    # only in branch nodes
+    left_node_ref: Optional[bytes]
+    right_node_ref: Optional[bytes]
 
     def is_leaf(self):
         return self.height == 0
+
+    def left_node(self, ndb):
+        if self.left_node_ref is not None:
+            return ndb.get(self.left_node_ref)
+
+    def right_node(self, ndb):
+        if self.right_node_ref is not None:
+            return ndb.get(self.right_node_ref)
 
     def as_json(self):
         d = self._asdict()
         d["key"] = HexBytes(self.key).hex()
         if self.value is not None:
             d["value"] = HexBytes(self.value).hex()
-        if self.left_child is not None:
-            d["left_child"] = HexBytes(self.left_child).hex()
-        if self.right_child is not None:
-            d["right_child"] = HexBytes(self.right_child).hex()
+        if self.left_node_ref is not None:
+            d["left_child"] = HexBytes(self.left_node_ref).hex()
+        if self.right_node_ref is not None:
+            d["right_child"] = HexBytes(self.right_node_ref).hex()
         return d
+
+    def hash(self):
+        return hash_node(self)
+
+    def encode(self):
+        return encode_node(self)
+
+    @staticmethod
+    def decode(bz: bytes):
+        nd, _ = decode_node(bz)
+        return nd
 
 
 def incr_bytes(prefix: bytes) -> bytes:
@@ -140,6 +167,34 @@ def encode_bytes(bz: bytes) -> List[bytes]:
     ]
 
 
+def encode_node(node: Node) -> bytes:
+    chunks = [
+        cprotobuf.encode_primitive("sint64", node.height),
+        cprotobuf.encode_primitive("sint64", node.size),
+        cprotobuf.encode_primitive("sint64", node.version),
+    ] + encode_bytes(node.key)
+    if node.is_leaf():
+        chunks += encode_bytes(node.value)
+    else:
+        chunks += encode_bytes(node.left_node_ref) + encode_bytes(node.right_node_ref)
+    return b"".join(chunks)
+
+
+def hash_node(node: Node) -> bytes:
+    chunks = [
+        cprotobuf.encode_primitive("sint64", node.height),
+        cprotobuf.encode_primitive("sint64", node.size),
+        cprotobuf.encode_primitive("sint64", node.version),
+    ]
+    if node.is_leaf():
+        chunks += encode_bytes(node.key) + encode_bytes(
+            hashlib.sha256(node.value).digest()
+        )
+    else:
+        chunks += encode_bytes(node.left_node_ref) + encode_bytes(node.right_node_ref)
+    return hashlib.sha256(b"".join(chunks)).digest()
+
+
 def decode_node(bz: bytes) -> (Node, int):
     offset = 0
     height, n = cprotobuf.decode_primitive(bz[offset:], "sint64")
@@ -170,8 +225,8 @@ def decode_node(bz: bytes) -> (Node, int):
             version=version,
             key=key,
             value=value,
-            left_child=left_hash,
-            right_child=right_hash,
+            left_node_ref=left_hash,
+            right_node_ref=right_hash,
         ),
         offset,
     )
@@ -276,7 +331,7 @@ def visit_iavl_nodes(
             if not prune_right:
                 stack.append(node.right_child)
             if not prune_left:
-                stack.append(node.left_child)
+                stack.append(node.left_node_ref)
 
         if preorder:
             yield hash, node

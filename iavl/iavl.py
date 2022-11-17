@@ -3,42 +3,16 @@ Support modify iavl tree
 """
 import hashlib
 from dataclasses import dataclass
-from typing import Callable, Dict, NamedTuple, Optional, Union
+from typing import Callable, NamedTuple, Optional, Union
 
 import cprotobuf
 
-from .utils import encode_bytes
+import rocksdb
+
+from .utils import Node as PersistedNode
+from .utils import encode_bytes, node_key, root_key
 
 NodeRef = Union[bytes, "Node"]
-
-
-class PersistedNode(NamedTuple):
-    """
-    immutable nodes that's loaded from and save to db
-    """
-
-    height: int  # height of subtree
-    size: int  # size of subtree
-    version: int  # the version created at
-    key: bytes
-
-    # only in leaf node
-    value: Optional[bytes]
-
-    # only in branch nodes
-    left_node_ref: Optional[bytes]
-    right_node_ref: Optional[bytes]
-
-    def is_leaf(self):
-        return self.height == 0
-
-    def left_node(self, ndb: "NodeDB"):
-        if self.left_node_ref is not None:
-            return ndb.get(self.left_node_ref)
-
-    def right_node(self, ndb: "NodeDB"):
-        if self.right_node_ref is not None:
-            return ndb.get(self.right_node_ref)
 
 
 class NodeDB:
@@ -46,15 +20,15 @@ class NodeDB:
     Load and cache persisted nodes
     """
 
-    store: Dict[bytes, PersistedNode]
-    versions: Dict[int, bytes]
+    db: rocksdb.DB
+    batch: rocksdb.WriteBatch
 
-    def __init__(self):
-        self.store = {}
-        self.versions = {}
+    def __init__(self, db):
+        self.db = db
+        self.batch = None
 
     def get(self, hash: bytes):
-        return self.store.get(hash)
+        return PersistedNode.decode(self.db.get(node_key(hash)))
 
     def resolve_node(self, ref: NodeRef) -> Union["Node", PersistedNode, None]:
         if isinstance(ref, Node):
@@ -62,14 +36,23 @@ class NodeDB:
         elif ref is not None:
             return self.get(ref)
 
-    def set(self, hash: bytes, node: PersistedNode):
-        self.store[hash] = node
+    def batch_set_node(self, hash: bytes, node: PersistedNode):
+        if self.batch is None:
+            self.batch = rocksdb.WriteBatch()
+        self.batch.put(node_key(hash), node.encode())
 
-    def set_root_hash(self, version: int, hash: bytes):
-        self.versions[version] = hash
+    def batch_set_root_hash(self, version: int, hash: bytes):
+        if self.batch is None:
+            self.batch = rocksdb.WriteBatch()
+        self.batch.put(root_key(version), hash)
 
-    def get_root_hash(self, version: int):
-        return self.versions.get(version)
+    def batch_commit(self):
+        if self.batch is not None:
+            self.db.write(self.batch)
+            self.batch = None
+
+    def get_root_hash(self, version: int) -> Optional[bytes]:
+        return self.db.get(root_key(version))
 
 
 @dataclass
@@ -228,7 +211,6 @@ class Node:
 
 class Tree:
     ndb: NodeDB
-    versions: Dict[int, bytes]
     root_node_ref: Union[None, bytes, Node]
     version: int
 
@@ -280,13 +262,14 @@ class Tree:
 
     def save_version(self):
         def save_node(hash: bytes, node: Node):
-            self.ndb.set(hash, node.persisted())
+            self.ndb.batch_set_node(hash, node.persisted())
 
         if isinstance(self.root_node_ref, Node):
             self.root_node_ref = self.save_branch(self.root_node_ref, save_node)
         self.version += 1
         root_hash = self.root_node_ref or hashlib.sha256().digest()
-        self.ndb.set_root_hash(self.version, root_hash)
+        self.ndb.batch_set_root_hash(self.version, root_hash)
+        self.ndb.batch_commit()
         return root_hash
 
 
