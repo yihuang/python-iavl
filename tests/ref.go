@@ -46,7 +46,7 @@ func main() {
 	fmt.Printf("%d %X\n", v, hash)
 
 	for i := 0; i < 20; i++ {
-		tree.Set([]byte(fmt.Sprintf("hello%d", i)), []byte("world1"))
+		tree.Set([]byte(fmt.Sprintf("hello%02d", i)), []byte("world1"))
 	}
 	hash, v, err = tree.SaveVersion()
 	if err != nil {
@@ -55,9 +55,24 @@ func main() {
 	fmt.Printf("%d %X\n", v, hash)
 
 	tree.Remove([]byte("hello"))
+	tree.Remove([]byte("hello19"))
 	hash, v, err = tree.SaveVersion()
 	if err != nil {
 		panic(err)
 	}
 	fmt.Printf("%d %X\n", v, hash)
+
+	// try to cover left balancing case
+	for i := 0; i <= 10; i++ {
+		tree.Set([]byte(fmt.Sprintf("aello%02d", i)), []byte("world1"))
+	}
+	for i := 20; i > 10; i-- {
+		tree.Set([]byte(fmt.Sprintf("aello%02d", i)), []byte("world1"))
+	}
+	hash, v, err = tree.SaveVersion()
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("%d %X\n", v, hash)
+
 }

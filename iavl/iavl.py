@@ -3,9 +3,10 @@ Support modify iavl tree
 """
 import hashlib
 from dataclasses import dataclass
-from typing import Callable, NamedTuple, Optional, Union
+from typing import Callable, Optional, Union
 
 import cprotobuf
+from hexbytes import HexBytes
 
 import rocksdb
 
@@ -201,7 +202,7 @@ class Node:
         elif balance < -1:
             rnode = self.right_node(ndb)
             rbalance = rnode.calc_balance(ndb)
-            if rbalance < 0:
+            if rbalance <= 0:
                 # right right
                 return self.rotate_left(ndb, version)
             else:
@@ -210,6 +211,19 @@ class Node:
                 return self.rotate_left(ndb, version)
         else:
             return self
+
+    def save(self, save_node: Callable[[bytes, "Node"], None]) -> bytes:
+        """
+        traverse the working nodes to update hashes and save nodes
+        """
+        if isinstance(self.left_node_ref, Node):
+            self.left_node_ref = self.left_node_ref.save(save_node)
+        if isinstance(self.right_node_ref, Node):
+            self.right_node_ref = self.right_node_ref.save(save_node)
+
+        hash = self.hash()
+        save_node(hash, self)
+        return hash
 
 
 class Tree:
@@ -243,32 +257,21 @@ class Tree:
         "remove the key and return the value, return None if not found."
         if self.root_node_ref is None:
             return
-        value, self.root_node_ref = remove_recursive(
+        value, new = remove_recursive(
             self.ndb, key, self.root_node_ref, self.version + 1
         )
+        if value is None:
+            # nothing changed
+            return
+        self.root_node_ref = new
         return value
-
-    def save_branch(
-        self, node: Node, save_node: Callable[[bytes, Node], None]
-    ) -> bytes:
-        """
-        traverse the working nodes to update hashes and save nodes
-        """
-        if isinstance(node.left_node_ref, Node):
-            node.left_node_ref = self.save_branch(node.left_node_ref, save_node)
-        if isinstance(node.right_node_ref, Node):
-            node.right_node_ref = self.save_branch(node.right_node_ref, save_node)
-
-        hash = node.hash()
-        save_node(hash, node)
-        return hash
 
     def save_version(self):
         def save_node(hash: bytes, node: Node):
             self.ndb.batch_set_node(hash, node.persisted())
 
         if isinstance(self.root_node_ref, Node):
-            self.root_node_ref = self.save_branch(self.root_node_ref, save_node)
+            self.root_node_ref = self.root_node_ref.save(save_node)
         self.version += 1
         root_hash = self.root_node_ref or hashlib.sha256().digest()
         self.ndb.batch_set_root_hash(self.version, root_hash)
@@ -332,7 +335,7 @@ def set_recursive(
             return (
                 Node(
                     version=version,
-                    key=key,
+                    key=node.key,
                     height=1,
                     size=2,
                     left_node_ref=Node.new_leaf(key, value, version),
