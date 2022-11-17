@@ -3,10 +3,9 @@ Support modify iavl tree
 """
 import hashlib
 from dataclasses import dataclass
-from typing import Callable, Optional, Union
+from typing import Callable, Dict, Optional, Union
 
 import cprotobuf
-from hexbytes import HexBytes
 
 import rocksdb
 
@@ -23,13 +22,23 @@ class NodeDB:
 
     db: rocksdb.DB
     batch: rocksdb.WriteBatch
+    cache: Dict[bytes, PersistedNode]
 
     def __init__(self, db):
         self.db = db
         self.batch = None
+        self.cache = {}
 
-    def get(self, hash: bytes):
-        return PersistedNode.decode(self.db.get(node_key(hash)))
+    def get(self, hash: bytes) -> Optional[PersistedNode]:
+        try:
+            return self.cache[hash]
+        except KeyError:
+            bz = self.db.get(node_key(hash))
+            if bz is None:
+                return
+            node = PersistedNode.decode(bz)
+            self.cache[hash] = node
+            return node
 
     def resolve_node(self, ref: NodeRef) -> Union["Node", PersistedNode, None]:
         if isinstance(ref, Node):
@@ -40,6 +49,7 @@ class NodeDB:
     def batch_set_node(self, hash: bytes, node: PersistedNode):
         if self.batch is None:
             self.batch = rocksdb.WriteBatch()
+        self.cache[hash] = node
         self.batch.put(node_key(hash), node.encode())
 
     def batch_set_root_hash(self, version: int, hash: bytes):
@@ -54,6 +64,11 @@ class NodeDB:
 
     def get_root_hash(self, version: int) -> Optional[bytes]:
         return self.db.get(root_key(version))
+
+    def latest_version(self) -> Optional[int]:
+        from .utils import iavl_latest_version
+
+        return iavl_latest_version(self.db, None)
 
 
 @dataclass
@@ -231,8 +246,12 @@ class Tree:
     root_node_ref: Union[None, bytes, Node]
     version: int
 
-    def __init__(self, ndb: NodeDB, version: int):
+    def __init__(self, ndb: NodeDB, version: Optional[int] = None):
         self.ndb = ndb
+        if version is None:
+            version = ndb.latest_version()
+            if version is None:
+                version = 0
         self.version = version
         self.root_node_ref = ndb.get_root_hash(version)
 

@@ -133,6 +133,8 @@ def fast_node_key(key: bytes) -> bytes:
 
 
 def store_prefix(s: str) -> bytes:
+    if not s:
+        return b""
     return b"s/k:%s/" % s.encode()
 
 
@@ -141,7 +143,13 @@ def prev_version(db: DBM, store: str, v: int) -> Optional[int]:
     prefix = store_prefix(store)
     target = prefix + root_key(v)
     it.seek(target)
-    k = next(it)
+    k = next(it, None)
+    if k is None:
+        it.seek_to_last()
+        k = next(it, None)
+    if k is None:
+        # empty db
+        return
     if k >= target:
         k = next(it)
     if not k.startswith(prefix + b"r"):
@@ -150,7 +158,7 @@ def prev_version(db: DBM, store: str, v: int) -> Optional[int]:
     return int.from_bytes(k[len(prefix) + 1 :], "big")
 
 
-def iavl_latest_version(db: DBM, store: str) -> int:
+def iavl_latest_version(db: DBM, store: str) -> Optional[int]:
     return prev_version(db, store, 1 << 63 - 1)
 
 
