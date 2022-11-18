@@ -29,14 +29,46 @@ def root_hash(db, store: List[str], version: Optional[int]):
     """
     print root hashes of iavl stores
     """
-    if not store:
-        raise click.UsageError("no store names are provided")
     db = dbm.open(str(db), read_only=True)
+    if not store:
+        # discover iavl store names from recent commit info
+        res = load_commit_infos(db)
+        store = [info.name for info in res.store_infos if info.commit_id.version > 0]
     for s in store:
         if version is None:
             version = iavl_latest_version(db, s)
         bz = db.get(store_prefix(s) + root_key(version))
         print(f"{s}: {binascii.hexlify(bz or b'').decode()}")
+
+
+@cli.command()
+@click.option("--db", help="path to application.db", type=click.Path(exists=True))
+@click.option(
+    "--version",
+    help="the version to query, default to latest version if not provided",
+    type=click.INT,
+)
+@click.option("--store", "-s", multiple=True)
+def root_node(db, store: List[str], version: Optional[int]):
+    """
+    print root nodes of iavl stores
+    """
+    db = dbm.open(str(db), read_only=True)
+    if not store:
+        # discover iavl store names from recent commit info
+        res = load_commit_infos(db)
+        store = [info.name for info in res.store_infos if info.commit_id.version > 0]
+    for s in store:
+        if version is None:
+            version = iavl_latest_version(db, s)
+        prefix = store_prefix(s)
+        hash = db.get(prefix + root_key(version))
+        if not hash:
+            print(f"{s}:")
+            continue
+        bz = db.get(prefix + node_key(hash))
+        node, _ = decode_node(bz)
+        print(f"{s}: {binascii.hexlify(hash).decode()} {json.dumps(node.as_json())}")
 
 
 @cli.command()
