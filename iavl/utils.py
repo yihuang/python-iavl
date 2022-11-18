@@ -64,9 +64,9 @@ class Node(NamedTuple):
         if self.value is not None:
             d["value"] = HexBytes(self.value).hex()
         if self.left_node_ref is not None:
-            d["left_child"] = HexBytes(self.left_node_ref).hex()
+            d["left_node_ref"] = HexBytes(self.left_node_ref).hex()
         if self.right_node_ref is not None:
-            d["right_child"] = HexBytes(self.right_node_ref).hex()
+            d["right_node_ref"] = HexBytes(self.right_node_ref).hex()
         return d
 
     def hash(self):
