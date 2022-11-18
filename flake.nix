@@ -17,6 +17,7 @@
               buildSystems = {
                 rocksdb = [ "setuptools" "cython" "pkgconfig" ];
                 cprotobuf = [ "setuptools" ];
+                pyzstd = [ "setuptools" ];
               };
             in
             lib.mapAttrs
