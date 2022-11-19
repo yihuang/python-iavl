@@ -1,15 +1,14 @@
 import binascii
 import mmap
-import os
-import random
 import sys
 from pathlib import Path
-from typing import Optional
 
 import click
-import pyzstd
 
-import rocksdb
+from .archive import bisect
+from .archive import dump_hashes as _dump_hashes
+from .archive import eval_dict as _eval_dict
+from .archive import train_dict as _train_dict
 
 
 @click.group
@@ -17,46 +16,23 @@ def cli():
     pass
 
 
-def _dump_hashes(store, output):
-    db = rocksdb.DB(os.environ["DB"], rocksdb.Options(), read_only=True)
-    prefix = f"s/k:{store}/".encode() + b"n"
-    it = db.iterkeys()
-    it.seek(prefix)
-    prefix_len = len(prefix)
-    for k in it:
-        if not k.startswith(prefix):
-            break
-        assert 32 == output.write(k[prefix_len:])
-
-
 @cli.command()
-@click.option("--output/-o", "output file path", default="-")
+@click.option("--output", "-o", help="output file path", default="-")
 @click.argument("store")
 def dump_hashes(store, output):
+    """
+    iterate iavl tree nodes and dump the node hashes into a file
+    """
     if output == "-":
-        _dump_hashes(store, sys.stdout)
+        _dump_hashes(store, sys.stdout.buffer)
     else:
-        with open(output) as fp:
+        with open(output, "wb") as fp:
             _dump_hashes(store, fp)
-
-
-def bisect(buf, target: bytes, hi, lo=0) -> Optional[int]:
-    while lo < hi:
-        mid = (lo + hi) // 2
-        offset = mid * 32
-        if target <= buf[offset : offset + 32]:
-            hi = mid
-        else:
-            lo = mid + 1
-
-    offset = lo * 32
-    if target == buf[offset : offset + 32]:
-        return lo
 
 
 @cli.command()
 @click.argument("hash-file")
-@click.argument("store")
+@click.argument("target")
 def search_node(hash_file: str, target: str):
     """
     search node index by hash in node hash file
@@ -67,49 +43,40 @@ def search_node(hash_file: str, target: str):
     count = hash_file.stat().st_size // 32
     with hash_file.open() as fp:
         buf = mmap.mmap(fp.fileno(), length=0, access=mmap.ACCESS_READ)
-        return bisect(buf, target, count)
+        print(bisect(buf, target, count))
 
 
 @cli.command()
+@click.option("--output", "-o", help="output file path", default="-")
 @click.argument("hash-file")
 @click.argument("store")
-def train_dict(hash_file: str, store: str):
+def train_dict(hash_file: str, store: str, output: str):
     """
     sample node values to train compression dict
     """
     hash_file = Path(hash_file)
-    prefix = f"s/k:{store}/".encode() + b"n"
-    dsize = 110 * 1024
-    target_size = dsize * 1024
-    db = rocksdb.DB(os.environ["DB"], rocksdb.Options(), read_only=True)
-    visited = set()
-    sample_size = 0
-    samples = []
-    count = hash_file.stat().st_size // 32
-    with hash_file.open() as fp:
-        buf = mmap.mmap(fp.fileno(), length=0, access=mmap.ACCESS_READ)
-        while sample_size < target_size and len(visited) < count:
-            i = random.randint(0, count - 1)
-            if i in visited:
-                continue
-            offset = i * 32
-            visited.add(offset)
-            hash = buf[offset : offset + 32]
-            assert len(hash) == 32
-            value = db.get(prefix + hash)
-            samples.append(value)
-            sample_size += len(value)
-    sys.stdout.buffer.write(pyzstd.train_dict(samples, dsize).dict_content)
+    if output == "-":
+        _train_dict(hash_file, store, sys.stdout.buffer)
+    else:
+        with open(output, "wb") as fp:
+            _train_dict(hash_file, store, fp)
 
 
 @cli.command()
+@click.option("--samples", help="the number of node values to sample", default=10000)
+@click.option("--level", help="compression level to evaluate", default=3)
+@click.argument("hash-file")
 @click.argument("dict-file")
 @click.argument("store")
-def eval_dict(hash_file: Path, store: str):
+def eval_dict(hash_file: str, dict_file: str, store: str, samples: int, level: int):
     """
     Evaluate compression ratio of the dictionary
     """
-    pass
+    size, compressed_size, compressed_size_with_dict = _eval_dict(
+        Path(hash_file), store, Path(dict_file), level, samples
+    )
+    print(f"with dict: {compressed_size/size:.02f}")
+    print(f"without dict: {compressed_size_with_dict/size:.02f}")
 
 
 if __name__ == "__main__":
