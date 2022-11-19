@@ -79,6 +79,10 @@
               type = "app";
               program = "${packages.iavl-cli-leveldb}/bin/iavl";
             };
+            archive-cli = {
+              type = "app";
+              program = "${packages.iavl-cli}/bin/archive";
+            };
           };
           devShells = {
             default = pkgs.mkShell {
