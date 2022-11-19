@@ -18,6 +18,8 @@
                 rocksdb = [ "setuptools" "cython" "pkgconfig" ];
                 cprotobuf = [ "setuptools" ];
                 pyzstd = [ "setuptools" ];
+                pyroaring = [ "setuptools" ];
+                roaring64 = [ "poetry" ];
               };
             in
             lib.mapAttrs

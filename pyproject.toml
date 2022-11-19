@@ -12,6 +12,7 @@ hexbytes = "^0.3.0"
 python-snappy = "^0.6.1"
 lz4 = "^4.0.2"
 pyzstd = "^0.15.3"
+roaring64 = { git = "https://github.com/yihuang/python-roaring64.git", branch = "main" }
 
 [tool.poetry.group.rocksdb]
 optional = true
