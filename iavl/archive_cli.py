@@ -75,8 +75,9 @@ def eval_dict(hash_file: str, dict_file: str, store: str, samples: int, level: i
     size, compressed_size, compressed_size_with_dict = _eval_dict(
         Path(hash_file), store, Path(dict_file), level, samples
     )
-    print(f"with dict: {compressed_size/size:.02f}")
-    print(f"without dict: {compressed_size_with_dict/size:.02f}")
+    print(f"uncompressed size: {size}")
+    print(f"compressed size with dict: {compressed_size}")
+    print(f"compressed size without dict: {compressed_size_with_dict}")
 
 
 if __name__ == "__main__":
