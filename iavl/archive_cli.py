@@ -48,18 +48,19 @@ def search_node(hash_file: str, target: str):
 
 @cli.command()
 @click.option("--output", "-o", help="output file path", default="-")
+@click.option("--dict-size", help="target dictionary size", default=110 * 1024)
 @click.argument("hash-file")
 @click.argument("store")
-def train_dict(hash_file: str, store: str, output: str):
+def train_dict(hash_file: str, store: str, output: str, dict_size):
     """
     sample node values to train compression dict
     """
     hash_file = Path(hash_file)
     if output == "-":
-        _train_dict(hash_file, store, sys.stdout.buffer)
+        _train_dict(hash_file, store, sys.stdout.buffer, dict_size)
     else:
         with open(output, "wb") as fp:
-            _train_dict(hash_file, store, fp)
+            _train_dict(hash_file, store, fp, dict_size)
 
 
 @cli.command()

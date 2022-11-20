@@ -27,9 +27,8 @@ def sample_node_hashes(hash_file: Path):
             yield buf[offset : offset + 32]
 
 
-def train_dict(hash_file: Path, store: str, output):
+def train_dict(hash_file: Path, store: str, output, dsize: int = 110 * 1024):
     prefix = f"s/k:{store}/".encode() + b"n"
-    dsize = 110 * 1024
     target_size = dsize * 1024
     db = rocksdb.DB(os.environ["DB"], rocksdb.Options(), read_only=True)
     sample_size = 0
