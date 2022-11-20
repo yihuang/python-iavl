@@ -18,7 +18,7 @@
                 rocksdb = [ "setuptools" "cython" "pkgconfig" ];
                 cprotobuf = [ "setuptools" ];
                 pyzstd = [ "setuptools" ];
-                pyroaring = [ "setuptools" ];
+                pyroaring = [ "setuptools" "cython" ];
                 roaring64 = [ "poetry" ];
               };
             in
