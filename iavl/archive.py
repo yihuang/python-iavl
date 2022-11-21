@@ -27,12 +27,10 @@ def iter_node_hashes(hash_file: Path):
 
 
 def sample_node_hashes(hash_file: Path):
-    filesize = hash_file.stat().st_size
-    assert filesize % 32 == 0
-    count = filesize // 32
     visited = set()
     with hash_file.open("rb") as fp:
         buf = mmap.mmap(fp.fileno(), length=0, access=mmap.ACCESS_READ)
+        count = len(buf) // 32
         while len(visited) < count:
             i = random.randint(0, count - 1)
             if i in visited:
@@ -42,14 +40,34 @@ def sample_node_hashes(hash_file: Path):
             yield buf[offset : offset + 32]
 
 
-def train_dict(hash_file: Path, store: str, output, dsize: int = 110 * 1024):
+def sample_leaf_node_hashes(hash_file: Path, leaf_bitmap: roaring64.BitMap64):
+    with hash_file.open("rb") as fp:
+        buf = mmap.mmap(fp.fileno(), length=0, access=mmap.ACCESS_READ)
+        while len(leaf_bitmap) > 0:
+            i = random.randint(0, len(leaf_bitmap) - 1)
+            v = leaf_bitmap[i]
+            offset = v * 32
+            yield buf[offset : offset + 32]
+            leaf_bitmap.remove(v)
+
+
+def train_dict(
+    hash_file: Path,
+    store: str,
+    output,
+    leaf_bitmap: roaring64.BitMap64,
+    dsize: int = 110 * 1024,
+):
+    """
+    only train dict with leaf nodes
+    """
     prefix = f"s/k:{store}/".encode() + b"n"
     target_size = dsize * 100
     db = rocksdb.DB(os.environ["DB"], rocksdb.Options(), read_only=True)
     sample_size = 0
 
     samples = []
-    for hash in sample_node_hashes(hash_file):
+    for hash in sample_leaf_node_hashes(hash_file, leaf_bitmap):
         v = db.get(prefix + hash)
         samples.append(v)
         sample_size += len(v)

@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 
 import click
+import roaring64
 
 from . import archive
 from .archive import bisect
@@ -55,18 +56,20 @@ def search_node(hash_file: str, target: str):
 @cli.command()
 @click.option("--output", "-o", help="output file path", default="-")
 @click.option("--dict-size", help="target dictionary size", default=110 * 1024)
+@click.option("--leaf-bitmap", help="bitmap for leaf nodes ", default="leaf_bitmap.dat")
 @click.argument("hash-file")
 @click.argument("store")
-def train_dict(hash_file: str, store: str, output: str, dict_size):
+def train_dict(hash_file: str, store: str, output: str, dict_size, leaf_bitmap):
     """
-    sample node values to train compression dict
+    sample leaf node values to train compression dict
     """
+    leaf_bitmap = roaring64.BitMap64.deserialize(Path(leaf_bitmap).read_bytes())
     hash_file = Path(hash_file)
     if output == "-":
-        _train_dict(hash_file, store, sys.stdout.buffer, dict_size)
+        archive.train_dict(hash_file, store, sys.stdout.buffer, leaf_bitmap, dict_size)
     else:
         with open(output, "wb") as fp:
-            _train_dict(hash_file, store, fp, dict_size)
+            archive.train_dict(hash_file, store, fp, leaf_bitmap, dict_size)
 
 
 @cli.command()
