@@ -19,16 +19,21 @@ def cli():
 
 @cli.command()
 @click.option("--output", "-o", help="output file path", default="-")
+@click.option(
+    "--output-leaf-bitmap",
+    help="optional leaf bitmap output file path",
+    type=click.STRING,
+)
 @click.argument("store")
-def dump_hashes(store, output):
+def dump_hashes(store, output, output_leaf_bitmap):
     """
     iterate iavl tree nodes and dump the node hashes into a file
     """
     if output == "-":
-        _dump_hashes(store, sys.stdout.buffer)
+        _dump_hashes(store, sys.stdout.buffer, output_leaf_bitmap)
     else:
         with open(output, "wb") as fp:
-            _dump_hashes(store, fp)
+            _dump_hashes(store, fp, output_leaf_bitmap)
 
 
 @cli.command()
@@ -95,6 +100,14 @@ def dump_nodes(hash_file, store, output, offset_output):
     else:
         with open(output, "wb") as output:
             archive.dump_nodes(Path(hash_file), store, output, Path(offset_output))
+
+
+@cli.command()
+@click.option("--output", "-o", help="output file path", default="-")
+@click.argument("store")
+def dump_leaf_bitmap(store, output):
+    with open(output, "wb") as fp:
+        archive.dump_leaf_bitmap(store, fp)
 
 
 if __name__ == "__main__":

@@ -102,16 +102,28 @@ def bisect(buf, target: bytes, hi, lo=0) -> Optional[int]:
         return lo
 
 
-def dump_hashes(store, output):
+def dump_hashes(store, output, output_leaf_bitmap: Optional[str] = None):
+    if output_leaf_bitmap:
+        bm = roaring64.BitMap64()
     db = rocksdb.DB(os.environ["DB"], rocksdb.Options(), read_only=True)
     prefix = store_prefix(store) + b"n"
-    it = db.iterkeys()
+    if output_leaf_bitmap:
+        it = db.iteritems()
+    else:
+        it = db.iterkeys()
     it.seek(prefix)
     prefix_len = len(prefix)
-    for k in it:
+    for i, k in enumerate(it):
+        if output_leaf_bitmap:
+            k, v = k
+            if v[0] == 0:
+                # is leaf node
+                bm.add(i)
         if not k.startswith(prefix):
             break
         assert 32 == output.write(k[prefix_len:])
+    if output_leaf_bitmap:
+        Path(output_leaf_bitmap).write_bytes(bm.serialize())
 
 
 def encode_branch_node2(
@@ -211,3 +223,21 @@ def dump_nodes(
             assert len(v) == output.write(v)
             offset += len(v)
     offset_output.write_bytes(m.serialize())
+
+
+def dump_leaf_bitmap(store: str, output):
+    """
+    dump a bitmap with leaf node index set to 1
+    """
+    bm = roaring64.BitMap64()
+    db = rocksdb.DB(os.environ["DB"], rocksdb.Options(), read_only=True)
+    prefix = store_prefix(store) + b"n"
+    it = db.iteritems()
+    it.seek(prefix)
+    for i, (k, v) in enumerate(it):
+        if not k.startswith(prefix):
+            break
+        if v[0] == 0:
+            # leaf node
+            bm.add(i)
+    output.write(bm.serialize())
