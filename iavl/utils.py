@@ -3,7 +3,7 @@ import itertools
 from collections.abc import Iterator
 from typing import Callable, List, NamedTuple, Optional, Tuple
 
-import cprotobuf
+from cprotobuf import Field, ProtoEntity, decode_primitive, encode_primitive
 from hexbytes import HexBytes
 
 from .dbm import DBM
@@ -11,23 +11,23 @@ from .dbm import DBM
 EMPTY_HASH = hashlib.sha256().digest()
 
 
-class CommitID(cprotobuf.ProtoEntity):
-    version = cprotobuf.Field("int64", 1)
-    hash = cprotobuf.Field("bytes", 2)
+class CommitID(ProtoEntity):
+    version = Field("int64", 1)
+    hash = Field("bytes", 2)
 
 
-class StoreInfo(cprotobuf.ProtoEntity):
-    name = cprotobuf.Field("string", 1)
-    commit_id = cprotobuf.Field(CommitID, 2)
+class StoreInfo(ProtoEntity):
+    name = Field("string", 1)
+    commit_id = Field(CommitID, 2)
 
 
-class CommitInfo(cprotobuf.ProtoEntity):
-    version = cprotobuf.Field("int64", 1)
-    store_infos = cprotobuf.Field(StoreInfo, 2, repeated=True)
+class CommitInfo(ProtoEntity):
+    version = Field("int64", 1)
+    store_infos = Field(StoreInfo, 2, repeated=True)
 
 
-class StdInt(cprotobuf.ProtoEntity):
-    value = cprotobuf.Field("uint64", 1)
+class StdInt(ProtoEntity):
+    value = Field("uint64", 1)
 
 
 class Node(NamedTuple):
@@ -163,23 +163,23 @@ def iavl_latest_version(db: DBM, store: str) -> Optional[int]:
 
 
 def decode_bytes(bz: bytes) -> (bytes, int):
-    l, n = cprotobuf.decode_primitive(bz, "uint64")
+    l, n = decode_primitive(bz, "uint64")
     assert l + n <= len(bz)
     return bz[n : n + l], n + l
 
 
 def encode_bytes(bz: bytes) -> List[bytes]:
     return [
-        cprotobuf.encode_primitive("uint64", len(bz)),
+        encode_primitive("uint64", len(bz)),
         bz,
     ]
 
 
 def encode_node(node: Node) -> bytes:
     chunks = [
-        cprotobuf.encode_primitive("sint64", node.height),
-        cprotobuf.encode_primitive("sint64", node.size),
-        cprotobuf.encode_primitive("sint64", node.version),
+        encode_primitive("sint64", node.height),
+        encode_primitive("sint64", node.size),
+        encode_primitive("sint64", node.version),
     ] + encode_bytes(node.key)
     if node.is_leaf():
         chunks += encode_bytes(node.value)
@@ -190,9 +190,9 @@ def encode_node(node: Node) -> bytes:
 
 def hash_node(node: Node) -> bytes:
     chunks = [
-        cprotobuf.encode_primitive("sint64", node.height),
-        cprotobuf.encode_primitive("sint64", node.size),
-        cprotobuf.encode_primitive("sint64", node.version),
+        encode_primitive("sint64", node.height),
+        encode_primitive("sint64", node.size),
+        encode_primitive("sint64", node.version),
     ]
     if node.is_leaf():
         chunks += encode_bytes(node.key) + encode_bytes(
@@ -205,11 +205,11 @@ def hash_node(node: Node) -> bytes:
 
 def decode_node(bz: bytes) -> (Node, int):
     offset = 0
-    height, n = cprotobuf.decode_primitive(bz[offset:], "sint64")
+    height, n = decode_primitive(bz[offset:], "sint64")
     offset += n
-    size, n = cprotobuf.decode_primitive(bz[offset:], "sint64")
+    size, n = decode_primitive(bz[offset:], "sint64")
     offset += n
-    version, n = cprotobuf.decode_primitive(bz[offset:], "sint64")
+    version, n = decode_primitive(bz[offset:], "sint64")
     offset += n
     key, n = decode_bytes(bz[offset:])
     offset += n
@@ -242,7 +242,7 @@ def decode_node(bz: bytes) -> (Node, int):
 
 def decode_fast_node(bz: bytes) -> (int, bytes, int):
     offset = 0
-    version, n = cprotobuf.decode_primitive(bz[offset:], "sint64")
+    version, n = decode_primitive(bz[offset:], "sint64")
     offset += n
     value, n = decode_bytes(bz[offset:])
     offset += n
@@ -385,7 +385,7 @@ def diff_iterators(it1, it2):
 
 def multistore_latest_version(db: DBM) -> int:
     bz = db.get(b"s/latest")
-    version, _ = cprotobuf.decode_primitive(bz[1:], "uint64")
+    version, _ = decode_primitive(bz[1:], "uint64")
     return version
 
 

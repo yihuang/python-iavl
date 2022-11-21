@@ -2,13 +2,28 @@ import itertools
 import mmap
 import os
 import random
-import sys
 from pathlib import Path
 from typing import Optional
 
+import lz4.frame
 import pyzstd
+import roaring64
+from cprotobuf import decode_primitive, encode_primitive
 
 import rocksdb
+
+from .utils import Node, decode_bytes, decode_node, encode_bytes, store_prefix
+
+
+def iter_node_hashes(hash_file: Path):
+    filesize = hash_file.stat().st_size
+    assert filesize % 32 == 0
+    count = filesize // 32
+    with hash_file.open("rb") as fp:
+        buf = mmap.mmap(fp.fileno(), length=0, access=mmap.ACCESS_READ)
+        for i in range(count):
+            offset = i * 32
+            yield buf[offset : offset + 32]
 
 
 def sample_node_hashes(hash_file: Path):
@@ -46,11 +61,12 @@ def train_dict(hash_file: Path, store: str, output, dsize: int = 110 * 1024):
 def eval_dict(
     hash_file: Path,
     store: str,
+    compression_type: str,
     compression_dict: Path,
     compression_level: int,
     sample_size: int,
 ):
-    prefix = f"s/k:{store}/".encode() + b"n"
+    prefix = store_prefix(store) + b"n"
     db = rocksdb.DB(os.environ["DB"], rocksdb.Options(), read_only=True)
     d = pyzstd.ZstdDict(compression_dict.read_bytes())
 
@@ -60,7 +76,12 @@ def eval_dict(
     for hash in itertools.islice(sample_node_hashes(hash_file), sample_size):
         v = db.get(prefix + hash)
         size += len(v)
-        compressed = pyzstd.compress(v, compression_level, zstd_dict=d)
+        if compression_type == "zstd":
+            compressed = pyzstd.compress(v, compression_level, zstd_dict=d)
+        elif compression_type == "lz4":
+            compressed = lz4.frame.compress(
+                v, compression_level=compression_level, zstd_dict=d
+            )
         compressed_size += len(compressed)
         compressed = pyzstd.compress(v, compression_level)
         compressed_size_with_dict += len(compressed)
@@ -83,7 +104,7 @@ def bisect(buf, target: bytes, hi, lo=0) -> Optional[int]:
 
 def dump_hashes(store, output):
     db = rocksdb.DB(os.environ["DB"], rocksdb.Options(), read_only=True)
-    prefix = f"s/k:{store}/".encode() + b"n"
+    prefix = store_prefix(store) + b"n"
     it = db.iterkeys()
     it.seek(prefix)
     prefix_len = len(prefix)
@@ -91,3 +112,102 @@ def dump_hashes(store, output):
         if not k.startswith(prefix):
             break
         assert 32 == output.write(k[prefix_len:])
+
+
+def encode_branch_node2(
+    height, size, version, key, left_node_index, right_node_index
+) -> bytes:
+    chunks = (
+        [
+            encode_primitive("sint64", height),
+            encode_primitive("sint64", size),
+            encode_primitive("sint64", version),
+        ]
+        + encode_bytes(key)
+        + [
+            encode_primitive("int64", left_node_index),
+            encode_primitive("int64", right_node_index),
+        ]
+    )
+    return b"".join(chunks)
+
+
+def decode_node2(bz: bytes, hash_buf: bytes) -> (Node, int):
+    offset = 0
+    height, n = decode_primitive(bz[offset:], "sint64")
+    offset += n
+    size, n = decode_primitive(bz[offset:], "sint64")
+    offset += n
+    version, n = decode_primitive(bz[offset:], "sint64")
+    offset += n
+    key, n = decode_bytes(bz[offset:])
+    offset += n
+
+    value = left_hash = right_hash = None
+
+    if height == 0:
+        # leaf node, read value
+        value, n = decode_bytes(bz[offset:])
+        offset += n
+    else:
+        # container node, read children
+        left_index, n = decode_primitive(bz[offset:], "int64")
+        offset += n
+        right_index, n = decode_primitive(bz[offset:], "int64")
+        offset += n
+
+        tmp = left_index * 32
+        left_hash = hash_buf[tmp : tmp + 32]
+        tmp = right_index * 32
+        right_hash = hash_buf[tmp : tmp + 32]
+    return (
+        Node(
+            height=height,
+            size=size,
+            version=version,
+            key=key,
+            value=value,
+            left_node_ref=left_hash,
+            right_node_ref=right_hash,
+        ),
+        offset,
+    )
+
+
+def dump_nodes(
+    hash_file: Path,
+    store,
+    output,
+    offset_output: Path,
+):
+    """
+    dump node values without compression
+    - replace children keys with node index
+    """
+    db = rocksdb.DB(os.environ["DB"], rocksdb.Options(), read_only=True)
+    prefix = store_prefix(store) + b"n"
+    offset = 0
+    m = roaring64.BitMap64()
+    with hash_file.open() as fp:
+        buf = mmap.mmap(fp.fileno(), length=0, access=mmap.ACCESS_READ)
+        count = len(buf) // 32
+        for i in range(count):
+            tmp = i * 32
+            hash = buf[tmp : tmp + 32]
+            v = db.get(prefix + hash)
+            node, _ = decode_node(v)
+            if not node.is_leaf():
+                left_node_index = bisect(buf, node.left_node_ref, count)
+                right_node_index = bisect(buf, node.left_node_ref, count)
+                v = encode_branch_node2(
+                    node.height,
+                    node.size,
+                    node.version,
+                    node.key,
+                    left_node_index,
+                    right_node_index,
+                )
+            m.add(offset)
+            assert len(v) == output.write(v)
+            offset += len(v)
+    offset_output.write_bytes(m.serialize())

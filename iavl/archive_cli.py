@@ -5,6 +5,7 @@ from pathlib import Path
 
 import click
 
+from . import archive
 from .archive import bisect
 from .archive import dump_hashes as _dump_hashes
 from .archive import eval_dict as _eval_dict
@@ -79,6 +80,21 @@ def eval_dict(hash_file: str, dict_file: str, store: str, samples: int, level: i
     print(f"uncompressed size: {size}")
     print(f"compressed size with dict: {compressed_size}")
     print(f"compressed size without dict: {compressed_size_with_dict}")
+
+
+@cli.command()
+@click.option("--output", "-o", help="output file path", default="-")
+@click.option("--offset-output", help="output file path for offsets")
+@click.argument("hash-file")
+@click.argument("store")
+def dump_nodes(hash_file, store, output, offset_output):
+    if output == "-":
+        archive.dump_nodes(
+            Path(hash_file), store, sys.stdout.buffer, Path(offset_output)
+        )
+    else:
+        with open(output, "wb") as output:
+            archive.dump_nodes(Path(hash_file), store, output, Path(offset_output))
 
 
 if __name__ == "__main__":
