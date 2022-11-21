@@ -5,7 +5,6 @@ import random
 from pathlib import Path
 from typing import Optional
 
-import lz4.frame
 import pyzstd
 import roaring64
 from cprotobuf import decode_primitive, encode_primitive
@@ -79,10 +78,10 @@ def train_dict(
 def eval_dict(
     hash_file: Path,
     store: str,
-    compression_type: str,
     compression_dict: Path,
-    compression_level: int,
     sample_size: int,
+    leaf_bitmap: roaring64.BitMap64,
+    compression_level: int = 3,
 ):
     prefix = store_prefix(store) + b"n"
     db = rocksdb.DB(os.environ["DB"], rocksdb.Options(), read_only=True)
@@ -91,15 +90,12 @@ def eval_dict(
     size = 0
     compressed_size = 0
     compressed_size_with_dict = 0
-    for hash in itertools.islice(sample_node_hashes(hash_file), sample_size):
+    for hash in itertools.islice(
+        sample_leaf_node_hashes(hash_file, leaf_bitmap), sample_size
+    ):
         v = db.get(prefix + hash)
         size += len(v)
-        if compression_type == "zstd":
-            compressed = pyzstd.compress(v, compression_level, zstd_dict=d)
-        elif compression_type == "lz4":
-            compressed = lz4.frame.compress(
-                v, compression_level=compression_level, zstd_dict=d
-            )
+        compressed = pyzstd.compress(v, compression_level, zstd_dict=d)
         compressed_size += len(compressed)
         compressed = pyzstd.compress(v, compression_level)
         compressed_size_with_dict += len(compressed)

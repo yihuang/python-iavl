@@ -7,10 +7,6 @@ import click
 import roaring64
 
 from . import archive
-from .archive import bisect
-from .archive import dump_hashes as _dump_hashes
-from .archive import eval_dict as _eval_dict
-from .archive import train_dict as _train_dict
 
 
 @click.group
@@ -31,10 +27,10 @@ def dump_hashes(store, output, output_leaf_bitmap):
     iterate iavl tree nodes and dump the node hashes into a file
     """
     if output == "-":
-        _dump_hashes(store, sys.stdout.buffer, output_leaf_bitmap)
+        archive.dump_hashes(store, sys.stdout.buffer, output_leaf_bitmap)
     else:
         with open(output, "wb") as fp:
-            _dump_hashes(store, fp, output_leaf_bitmap)
+            archive.dump_hashes(store, fp, output_leaf_bitmap)
 
 
 @cli.command()
@@ -50,7 +46,7 @@ def search_node(hash_file: str, target: str):
     count = hash_file.stat().st_size // 32
     with hash_file.open() as fp:
         buf = mmap.mmap(fp.fileno(), length=0, access=mmap.ACCESS_READ)
-        print(bisect(buf, target, count))
+        print(archive.bisect(buf, target, count))
 
 
 @cli.command()
@@ -74,20 +70,39 @@ def train_dict(hash_file: str, store: str, output: str, dict_size, leaf_bitmap):
 
 @cli.command()
 @click.option("--samples", help="the number of node values to sample", default=10000)
-@click.option("--level", help="compression level to evaluate", default=3)
+@click.option("--compression-level", help="compression level to evaluate", default=3)
+@click.option("--leaf-bitmap", help="bitmap for leaf nodes ", default="leaf_bitmap.dat")
 @click.argument("hash-file")
 @click.argument("dict-file")
 @click.argument("store")
-def eval_dict(hash_file: str, dict_file: str, store: str, samples: int, level: int):
+def eval_dict(
+    hash_file: str,
+    dict_file: str,
+    store: str,
+    samples: int,
+    leaf_bitmap,
+    compression_level: int,
+):
     """
     Evaluate compression ratio of the dictionary
     """
-    size, compressed_size, compressed_size_with_dict = _eval_dict(
-        Path(hash_file), store, Path(dict_file), level, samples
+    leaf_bitmap = roaring64.BitMap64.deserialize(Path(leaf_bitmap).read_bytes())
+    size, compressed_size, compressed_size_with_dict = archive.eval_dict(
+        Path(hash_file),
+        store,
+        Path(dict_file),
+        samples,
+        leaf_bitmap,
+        compression_level=compression_level,
     )
     print(f"uncompressed size: {size}")
-    print(f"compressed size with dict: {compressed_size}")
-    print(f"compressed size without dict: {compressed_size_with_dict}")
+    print(
+        f"compressed size with dict: {compressed_size}({compressed_size / size:.02f})"
+    )
+    print(
+        f"compressed size without dict: {compressed_size_with_dict}"
+        f"({compressed_size_with_dict / size:.02f})"
+    )
 
 
 @cli.command()
