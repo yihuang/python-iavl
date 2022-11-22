@@ -1,3 +1,4 @@
+import binascii
 import itertools
 import mmap
 import os
@@ -15,14 +16,20 @@ from .utils import Node, decode_bytes, decode_node, encode_bytes, store_prefix
 
 
 def iter_node_hashes(hash_file: Path):
-    filesize = hash_file.stat().st_size
-    assert filesize % 32 == 0
-    count = filesize // 32
     with hash_file.open("rb") as fp:
         buf = mmap.mmap(fp.fileno(), length=0, access=mmap.ACCESS_READ)
+        count = len(buf) // 32
         for i in range(count):
             offset = i * 32
             yield buf[offset : offset + 32]
+
+
+def iter_leaf_node_hashes(hash_file: Path, leaf_bitmap: roaring64.BitMap64):
+    with hash_file.open("rb") as fp:
+        buf = mmap.mmap(fp.fileno(), length=0, access=mmap.ACCESS_READ)
+        for i in leaf_bitmap:
+            offset = i * 32
+            yield i, buf[offset : offset + 32]
 
 
 def sample_node_hashes(hash_file: Path):
@@ -76,7 +83,7 @@ def train_dict(
     """
     only train dict with leaf nodes
     """
-    prefix = f"s/k:{store}/".encode() + b"n"
+    prefix = store_prefix(store) + b"n"
     target_size = dsize * 100
     db = rocksdb.DB(os.environ["DB"], rocksdb.Options(), read_only=True)
     sample_size = 0
@@ -274,3 +281,23 @@ def dump_leaf_bitmap(store: str, output):
             # leaf node
             bm.add(i)
     output.write(bm.serialize())
+
+
+def dump_leaf_keys(
+    hash_file: Path, store: str, leaf_bitmap: roaring64.BitMap64, output
+):
+    db = rocksdb.DB(os.environ["DB"], rocksdb.Options(), read_only=True)
+    prefix = store_prefix(store) + b"n"
+    for i, hash in iter_leaf_node_hashes(hash_file, leaf_bitmap):
+        bz = db.get(prefix + hash)
+
+        offset = 0
+        _, n = decode_primitive(bz[offset:], "sint64")
+        offset += n
+        _, n = decode_primitive(bz[offset:], "sint64")
+        offset += n
+        _, n = decode_primitive(bz[offset:], "sint64")
+        offset += n
+        key, _ = decode_bytes(bz[offset:])
+
+        print(binascii.hexlify(key).decode(), file=output)

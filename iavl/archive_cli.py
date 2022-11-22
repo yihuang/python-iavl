@@ -135,5 +135,19 @@ def dump_leaf_bitmap(store, output):
         archive.dump_leaf_bitmap(store, fp)
 
 
+@cli.command()
+@click.option("--output", "-o", help="output file path", default="-")
+@click.option("--leaf-bitmap", help="bitmap for leaf nodes ", default="leaf_bitmap.dat")
+@click.argument("hash-file")
+@click.argument("store")
+def dump_leaf_keys(store, hash_file, output, leaf_bitmap: str):
+    leaf_bitmap = roaring64.BitMap64.deserialize(Path(leaf_bitmap).read_bytes())
+    if output == "-":
+        archive.dump_leaf_keys(Path(hash_file), store, leaf_bitmap, sys.stdout)
+    else:
+        with open(output, "w") as output:
+            archive.dump_leaf_keys(Path(hash_file), store, leaf_bitmap, output)
+
+
 if __name__ == "__main__":
     cli()
