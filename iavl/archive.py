@@ -50,6 +50,22 @@ def sample_leaf_node_hashes(hash_file: Path, leaf_bitmap: roaring64.BitMap64):
             leaf_bitmap.remove(v)
 
 
+def sample_branch_node_hashes(hash_file: Path, leaf_bitmap: roaring64.BitMap64):
+    with hash_file.open("rb") as fp:
+        buf = mmap.mmap(fp.fileno(), length=0, access=mmap.ACCESS_READ)
+        count = len(buf) // 32
+        visited = set()
+        while len(visited) < count:
+            v = random.randint(0, count - 1)
+            if v in visited:
+                continue
+            visited.add(v)
+            if v in leaf_bitmap:
+                continue
+            offset = v * 32
+            yield buf[offset : offset + 32]
+
+
 def train_dict(
     hash_file: Path,
     store: str,
@@ -82,6 +98,7 @@ def eval_dict(
     sample_size: int,
     leaf_bitmap: roaring64.BitMap64,
     compression_level: int = 3,
+    leaf_node: bool = True,
 ):
     prefix = store_prefix(store) + b"n"
     db = rocksdb.DB(os.environ["DB"], rocksdb.Options(), read_only=True)
@@ -90,9 +107,11 @@ def eval_dict(
     size = 0
     compressed_size = 0
     compressed_size_with_dict = 0
-    for hash in itertools.islice(
-        sample_leaf_node_hashes(hash_file, leaf_bitmap), sample_size
-    ):
+    if leaf_node:
+        gen = sample_leaf_node_hashes(hash_file, leaf_bitmap)
+    else:
+        gen = sample_branch_node_hashes(hash_file, leaf_bitmap)
+    for hash in itertools.islice(gen, sample_size):
         v = db.get(prefix + hash)
         size += len(v)
         compressed = pyzstd.compress(v, compression_level, zstd_dict=d)

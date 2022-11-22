@@ -72,6 +72,11 @@ def train_dict(hash_file: str, store: str, output: str, dict_size, leaf_bitmap):
 @click.option("--samples", help="the number of node values to sample", default=10000)
 @click.option("--compression-level", help="compression level to evaluate", default=3)
 @click.option("--leaf-bitmap", help="bitmap for leaf nodes ", default="leaf_bitmap.dat")
+@click.option(
+    "--leaf-node/--no-leaf-node",
+    help="evaluate on leaf nodes, otherwise on branch node",
+    default=True,
+)
 @click.argument("hash-file")
 @click.argument("dict-file")
 @click.argument("store")
@@ -82,6 +87,7 @@ def eval_dict(
     samples: int,
     leaf_bitmap,
     compression_level: int,
+    leaf_node: bool,
 ):
     """
     Evaluate compression ratio of the dictionary
@@ -94,6 +100,7 @@ def eval_dict(
         samples,
         leaf_bitmap,
         compression_level=compression_level,
+        leaf_node=leaf_node,
     )
     print(f"uncompressed size: {size}")
     print(
