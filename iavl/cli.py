@@ -10,6 +10,7 @@ from .utils import (decode_fast_node, decode_node, diff_iterators,
                     encode_stdint, fast_node_key, iavl_latest_version,
                     iter_fast_nodes, iter_iavl_tree, load_commit_infos,
                     node_key, root_key, store_prefix)
+from .visualize import visualize_iavl
 
 
 @click.group
@@ -18,7 +19,9 @@ def cli():
 
 
 @cli.command()
-@click.option("--db", help="path to application.db", type=click.Path(exists=True))
+@click.option(
+    "--db", help="path to application.db", type=click.Path(exists=True), required=True
+)
 @click.option(
     "--version",
     help="the version to query, default to latest version if not provided",
@@ -42,7 +45,9 @@ def root_hash(db, store: List[str], version: Optional[int]):
 
 
 @cli.command()
-@click.option("--db", help="path to application.db", type=click.Path(exists=True))
+@click.option(
+    "--db", help="path to application.db", type=click.Path(exists=True), required=True
+)
 @click.option(
     "--version",
     help="the version to query, default to latest version if not provided",
@@ -72,7 +77,9 @@ def root_node(db, store: List[str], version: Optional[int]):
 
 
 @cli.command()
-@click.option("--db", help="path to application.db", type=click.Path(exists=True))
+@click.option(
+    "--db", help="path to application.db", type=click.Path(exists=True), required=True
+)
 @click.option("--store", "-s")
 @click.argument("hash")
 def node(db, hash, store):
@@ -86,7 +93,9 @@ def node(db, hash, store):
 
 
 @cli.command()
-@click.option("--db", help="path to application.db", type=click.Path(exists=True))
+@click.option(
+    "--db", help="path to application.db", type=click.Path(exists=True), required=True
+)
 @click.option("--store", "-s")
 @click.argument("key")
 def fast_node(db, key, store):
@@ -102,7 +111,9 @@ def fast_node(db, key, store):
 
 
 @cli.command()
-@click.option("--db", help="path to application.db", type=click.Path(exists=True))
+@click.option(
+    "--db", help="path to application.db", type=click.Path(exists=True), required=True
+)
 @click.option("--store", "-s", multiple=True)
 def metadata(db, store):
     """
@@ -118,7 +129,9 @@ def metadata(db, store):
 
 
 @cli.command()
-@click.option("--db", help="path to application.db", type=click.Path(exists=True))
+@click.option(
+    "--db", help="path to application.db", type=click.Path(exists=True), required=True
+)
 @click.option(
     "--version",
     help="the version to query, default to latest version if not provided",
@@ -139,7 +152,9 @@ def commit_infos(db, version):
 
 
 @cli.command()
-@click.option("--db", help="path to application.db", type=click.Path(exists=True))
+@click.option(
+    "--db", help="path to application.db", type=click.Path(exists=True), required=True
+)
 @click.option("--store", "-s")
 @click.option(
     "--version",
@@ -173,7 +188,9 @@ def range_iavl(db, store, version, start, end, output_value):
 
 
 @cli.command()
-@click.option("--db", help="path to application.db", type=click.Path(exists=True))
+@click.option(
+    "--db", help="path to application.db", type=click.Path(exists=True), required=True
+)
 @click.option("--store", "-s")
 @click.option("--start")
 @click.option("--end")
@@ -197,7 +214,9 @@ def range_fastnode(db, store, start, end, output_value):
 
 
 @cli.command()
-@click.option("--db", help="path to application.db", type=click.Path(exists=True))
+@click.option(
+    "--db", help="path to application.db", type=click.Path(exists=True), required=True
+)
 @click.option("--store", "-s")
 @click.option("--start")
 @click.option("--end")
@@ -235,7 +254,9 @@ def diff_fastnode(db, store, start, end, output_value):
 
 
 @cli.command()
-@click.option("--db", help="path to application.db", type=click.Path(exists=True))
+@click.option(
+    "--db", help="path to application.db", type=click.Path(exists=True), required=True
+)
 @click.option(
     "--target",
     help="rollback to target version, default to latest version minus 1",
@@ -283,6 +304,40 @@ def fast_rollback(
                 batch.delete(prefix + root_key(v))
         batch.put(b"s/latest", encode_stdint(target))
         print(f"update latest version to {target}")
+
+
+@cli.command()
+@click.option(
+    "--db", help="path to application.db", type=click.Path(exists=True), required=True
+)
+@click.option(
+    "--version",
+    help="the version to query, default to latest version if not provided",
+    type=click.INT,
+)
+@click.option(
+    "--include-prev-version",
+    help="include the previous version to compare",
+    is_flag=True,
+    default=False,
+)
+@click.option("--store", "-s")
+def visualize(db, version, store=None, include_prev_version=False):
+    """
+    visualize iavl tree with dot, example:
+    $ iavl-cli visualize --version 9 --db app.db --store bank | dot -Tpdf > /tmp/tree.pdf
+    """
+    db = dbm.open(str(db), read_only=True)
+    if version is None:
+        version = iavl_latest_version(db, store)
+
+    prefix = store_prefix(store) if store is not None else b""
+    root_hash = db.get(prefix + root_key(version))
+    root_hash2 = None
+    if include_prev_version and version > 1:
+        root_hash2 = db.get(prefix + root_key(version - 1))
+    g = visualize_iavl(db, prefix, root_hash, version, root_hash2=root_hash2)
+    print(g.source)
 
 
 if __name__ == "__main__":

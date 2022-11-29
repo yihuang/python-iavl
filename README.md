@@ -20,4 +20,5 @@ Commands:
   range-iavl      iterate iavl tree
   root-hash       print root hashes of iavl stores
   root-node       print root nodes of iavl stores
+  visualize       visualize iavl tree with dot, example: $ iavl-cli...
 ```

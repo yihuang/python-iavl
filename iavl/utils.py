@@ -340,7 +340,7 @@ def visit_iavl_nodes(
         if not node.is_leaf():
             prune_left, prune_right = prune_check(node.key)
             if not prune_right:
-                stack.append(node.right_child)
+                stack.append(node.right_node_ref)
             if not prune_left:
                 stack.append(node.left_node_ref)
 

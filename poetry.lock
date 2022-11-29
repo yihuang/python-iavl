@@ -54,6 +54,19 @@ optional = false
 python-versions = "*"
 
 [[package]]
+name = "graphviz"
+version = "0.20.1"
+description = "Simple Python interface for Graphviz"
+category = "main"
+optional = false
+python-versions = ">=3.7"
+
+[package.extras]
+dev = ["flake8", "pep8-naming", "tox (>=3)", "twine", "wheel"]
+docs = ["sphinx (>=5)", "sphinx-autodoc-typehints", "sphinx-rtd-theme"]
+test = ["coverage", "mock (>=4)", "pytest (>=7)", "pytest-cov", "pytest-mock (>=3)"]
+
+[[package]]
 name = "hexbytes"
 version = "0.3.0"
 description = "hexbytes: Python `bytes` subclass that decodes hex, with a readable console output"
@@ -214,7 +227,7 @@ python-versions = ">=3.7"
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.10"
-content-hash = "380b9fe62f0ca2b8edd9c297e9a5a39a2a51143e39d2fb7df16f28fcf0ee0021"
+content-hash = "91aebba68238c547c34a3d88c02d226c6a711185c441f49abca9f46201391a70"
 
 [metadata.files]
 attrs = [
@@ -283,6 +296,10 @@ coverage = [
 ]
 cprotobuf = [
     {file = "cprotobuf-0.1.11.tar.gz", hash = "sha256:d2d88c8de840275205e64e530052c653dd25a0fb9e5cd9f7e39ce8f762d7c0a4"},
+]
+graphviz = [
+    {file = "graphviz-0.20.1-py3-none-any.whl", hash = "sha256:587c58a223b51611c0cf461132da386edd896a029524ca61a1462b880bf97977"},
+    {file = "graphviz-0.20.1.zip", hash = "sha256:8c58f14adaa3b947daf26c19bc1e98c4e0702cdc31cf99153e6f06904d492bf8"},
 ]
 hexbytes = [
     {file = "hexbytes-0.3.0-py3-none-any.whl", hash = "sha256:21c3a5bd00a383097f0369c387174e79839d75c4ccc3a7edda315c9644f4458a"},
