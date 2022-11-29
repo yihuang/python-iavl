@@ -75,4 +75,19 @@ func main() {
 	}
 	fmt.Printf("%d %X\n", v, hash)
 
+	// remove most of the values
+	for i := 0; i <= 10; i++ {
+		tree.Remove([]byte(fmt.Sprintf("aello%02d", i)))
+	}
+	for i := 20; i > 10; i-- {
+		tree.Remove([]byte(fmt.Sprintf("aello%02d", i)))
+	}
+	for i := 0; i < 20; i++ {
+		tree.Remove([]byte(fmt.Sprintf("hello%02d", i)))
+	}
+	hash, v, err = tree.SaveVersion()
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("%d %X\n", v, hash)
 }

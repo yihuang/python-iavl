@@ -19,6 +19,7 @@ def test_basic_ops(tmp_path):
         HexBytes("D6D9F6CA091FA4BD3545F0FEDB2C5865D42123B222C202DF72EFB4BFD75CC118"),
         HexBytes("585581060957AE2E6157F1790A88BF3544FECC9902BBF2E2286CF7325539126C"),
         HexBytes("AB4C3DEFB7266D7587BAEA808B0BA2D74C294A96D55BDA7AB5E473CD75BC8E64"),
+        HexBytes("D91CF6388EEFF3204474BB07B853AB0D7D39163912AC1E610E92F9B178C76922"),
     ]
     kvdb = rocksdb.DB(str(dbpath), rocksdb.Options(create_if_missing=True))
     db = NodeDB(kvdb)
@@ -67,9 +68,18 @@ def test_basic_ops(tmp_path):
 
     # test cache miss
     db = NodeDB(kvdb)
-    tree = Tree(db)
-    assert tree.version == len(exp_root_hashes) - 1
-    assert b"world1" == tree.get(b"aello20")
+    tree2 = Tree(db)
+    assert tree2.version == 6
+    assert b"world1" == tree2.get(b"aello20")
+
+    # remove most of the values
+    for i in range(11):
+        tree.remove(b"aello%02d" % i)
+    for i in range(20, 10, -1):
+        tree.remove(b"aello%02d" % i)
+    for i in range(20):
+        tree.remove(b"hello%02d" % i)
+    assert exp_root_hashes[7] == tree.save_version()
 
 
 def test_empty_tree(tmp_path):

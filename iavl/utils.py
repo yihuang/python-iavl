@@ -75,6 +75,9 @@ class Node(NamedTuple):
     def encode(self):
         return encode_node(self)
 
+    def calc_balance(self, ndb):
+        return self.left_node(ndb).height - self.right_node(ndb).height
+
     @staticmethod
     def decode(bz: bytes):
         nd, _ = decode_node(bz)

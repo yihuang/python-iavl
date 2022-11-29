@@ -102,15 +102,13 @@ class Node:
     @classmethod
     def from_branch_node(
         cls,
-        node: Union["Node", PersistedNode],
+        node: PersistedNode,
         version: int,
-        left_node_ref: Optional[NodeRef] = None,
-        right_node_ref: Optional[NodeRef] = None,
     ):
         """
-        clone a branch node and modify
+        clone a persisted branch node and prepare to modify
         """
-        res = cls(
+        return cls(
             height=node.height,
             size=node.size,
             version=version,
@@ -118,13 +116,6 @@ class Node:
             left_node_ref=node.left_node_ref,
             right_node_ref=node.right_node_ref,
         )
-
-        # override
-        if left_node_ref is not None:
-            res.left_node_ref = left_node_ref
-        if right_node_ref is not None:
-            res.right_node_ref = right_node_ref
-        return res
 
     def persisted(self) -> PersistedNode:
         return PersistedNode(
@@ -173,10 +164,12 @@ class Node:
         """
         rnode = self.right_node(ndb)
         self.right_node_ref = rnode.left_node_ref
-        new = Node.from_branch_node(rnode, version, left_node_ref=self)
+        if isinstance(rnode, PersistedNode):
+            rnode = Node.from_branch_node(rnode, version)
+        rnode.left_node_ref = self
         self.update_height_size(ndb)
-        new.update_height_size(ndb)
-        return new
+        rnode.update_height_size(ndb)
+        return rnode
 
     def rotate_right(self, ndb: NodeDB, version: int):
         r"""
@@ -188,10 +181,12 @@ class Node:
         """
         lnode = self.left_node(ndb)
         self.left_node_ref = lnode.right_node_ref
-        new = Node.from_branch_node(lnode, version, right_node_ref=self)
+        if isinstance(lnode, PersistedNode):
+            lnode = Node.from_branch_node(lnode, version)
+        lnode.right_node_ref = self
         self.update_height_size(ndb)
-        new.update_height_size(ndb)
-        return new
+        lnode.update_height_size(ndb)
+        return lnode
 
     def update_height_size(self, ndb: NodeDB):
         lnode = self.left_node(ndb)
@@ -212,6 +207,8 @@ class Node:
                 return self.rotate_right(ndb, version)
             else:
                 # left right
+                if isinstance(lnode, PersistedNode):
+                    lnode = Node.from_branch_node(lnode, version)
                 self.left_node_ref = lnode.rotate_left(ndb, version)
                 return self.rotate_right(ndb, version)
         elif balance < -1:
@@ -222,6 +219,8 @@ class Node:
                 return self.rotate_left(ndb, version)
             else:
                 # right left
+                if isinstance(rnode, PersistedNode):
+                    rnode = Node.from_branch_node(rnode, version)
                 self.right_node_ref = rnode.rotate_right(ndb, version)
                 return self.rotate_left(ndb, version)
         else:
@@ -334,12 +333,14 @@ def remove_recursive(
                 return value, node.left_node_ref
         else:
             # update the subtree
+            if isinstance(node, PersistedNode):
+                node = Node.from_branch_node(node, version)
             if turn_left:
-                new = Node.from_branch_node(node, version, left_node_ref=new_child)
+                node.left_node_ref = new_child
             else:
-                new = Node.from_branch_node(node, version, right_node_ref=new_child)
-            new.update_height_size(ndb)
-            return value, new.balance(ndb, version)
+                node.right_node_ref = new_child
+            node.update_height_size(ndb)
+            return value, node.balance(ndb, version)
 
 
 def set_recursive(
@@ -377,29 +378,23 @@ def set_recursive(
         else:
             return Node.new_leaf(key, value, version), True
     else:
+        if isinstance(node, PersistedNode):
+            node = Node.from_branch_node(node, version)
         if key < node.key:
-            lnode, updated = set_recursive(ndb, node.left_node_ref, key, value, version)
-            new = Node.from_branch_node(
-                node,
-                version,
-                left_node_ref=lnode,
+            node.left_node_ref, updated = set_recursive(
+                ndb, node.left_node_ref, key, value, version
             )
         else:
-            rnode, updated = set_recursive(
+            node.right_node_ref, updated = set_recursive(
                 ndb, node.right_node_ref, key, value, version
-            )
-            new = Node.from_branch_node(
-                node,
-                version,
-                right_node_ref=rnode,
             )
 
         if not updated:
             # tree shape is changed, re-balance
-            new.update_height_size(ndb)
-            new = new.balance(ndb, version)
+            node.update_height_size(ndb)
+            node = node.balance(ndb, version)
 
-        return new, updated
+        return node, updated
 
 
 def get_recursive(
