@@ -88,6 +88,8 @@ def node(db, hash, store):
     """
     db = dbm.open(str(db), read_only=True)
     bz = db.get(store_prefix(store) + node_key(HexBytes(hash)))
+    if not bz:
+        raise click.BadParameter("node for the hash don't exist")
     node, _ = decode_node(bz)
     print(json.dumps(node.as_json()))
 
@@ -106,6 +108,8 @@ def fast_node(db, key, store):
         raise click.UsageError("no store names are provided")
     db = dbm.open(str(db), read_only=True)
     bz = db.get(store_prefix(store) + fast_node_key(HexBytes(key)))
+    if not bz:
+        raise click.BadParameter("fast node for the key don't exist")
     version, value, _ = decode_fast_node(bz)
     print(f"updated at: {version}, value: {HexBytes(value).hex()}")
 
