@@ -1,15 +1,18 @@
 import binascii
+import hashlib
 import json
 from typing import List, Optional
 
 import click
 from hexbytes import HexBytes
 
-from . import dbm
-from .utils import (decode_fast_node, decode_node, diff_iterators,
-                    encode_stdint, fast_node_key, iavl_latest_version,
-                    iter_fast_nodes, iter_iavl_tree, load_commit_infos,
-                    node_key, root_key, store_prefix)
+from . import dbm, diff
+from .diff import apply_change_set
+from .iavl import NodeDB, Tree
+from .utils import (decode_fast_node, diff_iterators, encode_stdint,
+                    fast_node_key, get_node, get_root_node,
+                    iavl_latest_version, iter_fast_nodes, iter_iavl_tree,
+                    load_commit_infos, root_key, store_prefix)
 from .visualize import visualize_iavl
 
 
@@ -66,14 +69,11 @@ def root_node(db, store: List[str], version: Optional[int]):
     for s in store:
         if version is None:
             version = iavl_latest_version(db, s)
-        prefix = store_prefix(s)
-        hash = db.get(prefix + root_key(version))
-        if not hash:
+        node = get_root_node(db, version, s)
+        if not node:
             print(f"{s}:")
             continue
-        bz = db.get(prefix + node_key(hash))
-        node, _ = decode_node(bz)
-        print(f"{s}: {binascii.hexlify(hash).decode()} {json.dumps(node.as_json())}")
+        print(f"{s}: {json.dumps(node.as_json())}")
 
 
 @cli.command()
@@ -87,10 +87,9 @@ def node(db, hash, store):
     print the content of a node
     """
     db = dbm.open(str(db), read_only=True)
-    bz = db.get(store_prefix(store) + node_key(HexBytes(hash)))
-    if not bz:
+    node = get_node(db, HexBytes(hash), store)
+    if not node:
         raise click.BadParameter("node for the hash don't exist")
-    node, _ = decode_node(bz)
     print(json.dumps(node.as_json()))
 
 
@@ -329,7 +328,7 @@ def fast_rollback(
 def visualize(db, version, store=None, include_prev_version=False):
     """
     visualize iavl tree with dot, example:
-    $ iavl-cli visualize --version 9 --db app.db --store bank | dot -Tpdf > /tmp/tree.pdf
+    $ iavl-cli visualize --version 9 --db db --store bank | dot -Tpdf > /tmp/tree.pdf
     """
     db = dbm.open(str(db), read_only=True)
     if version is None:
@@ -342,6 +341,83 @@ def visualize(db, version, store=None, include_prev_version=False):
         root_hash2 = db.get(prefix + root_key(version - 1))
     g = visualize_iavl(db, prefix, root_hash, version, root_hash2=root_hash2)
     print(g.source)
+
+
+@cli.command()
+@click.option(
+    "--db", help="path to application.db", type=click.Path(exists=True), required=True
+)
+@click.option("--store", "-s")
+@click.option(
+    "--version",
+    help="the version to query, default to latest version if not provided",
+    type=click.INT,
+)
+def state_changes(db, version, store: Optional[str]):
+    db = dbm.open(str(db), read_only=True)
+    if version is None:
+        version = iavl_latest_version(db, store)
+
+    prefix = store_prefix(store) if store is not None else b""
+    ndb = NodeDB(db, prefix=prefix)
+    pversion = ndb.prev_version(version) or 0
+    prev_root = ndb.get_root_node(pversion)
+    root = ndb.get_root_node(version)
+    for key, op, arg in diff.state_changes(ndb.get, prev_root, root):
+        if op == diff.Op.Update:
+            value = binascii.hexlify(arg[1]).decode()
+        elif op == diff.Op.Delete:
+            value = ""
+        elif op == diff.Op.Insert:
+            value = binascii.hexlify(arg).decode()
+        print(op, binascii.hexlify(key).decode(), value)
+
+
+@cli.command()
+@click.option(
+    "--db", help="path to application.db", type=click.Path(exists=True), required=True
+)
+@click.option("--store", "-s")
+@click.option(
+    "--start-version",
+    help="the version to start check",
+    default=1,
+)
+def test_state_round_trip(db, store, start_version):
+    """
+    extract state changes from iavl versions,
+    reapply and check if we can get back the same root hash
+    """
+    db = dbm.open(str(db), read_only=True)
+    prefix = store_prefix(store) if store is not None else b""
+    ndb = NodeDB(db, prefix=prefix)
+    pversion = ndb.prev_version(start_version) or 0
+    prev_root = ndb.get_root_node(pversion)
+    it = db.iteritems()
+    it.seek(prefix + root_key(start_version))
+    for k, hash in it:
+        if not k.startswith(prefix + b"r"):
+            break
+        v = int.from_bytes(k[len(prefix) + 1 :], "big")
+        root = ndb.get(hash)
+        changeset = diff.state_changes(ndb.get, prev_root, root)
+
+        # re-apply changeset
+        tree = Tree(ndb, pversion)
+        apply_change_set(tree, changeset)
+        tmp = tree.save_version(dry_run=True)
+        if (hash or hashlib.sha256().digest()) == tmp:
+            print(v, "ok")
+        else:
+            print(
+                v,
+                "fail",
+                binascii.hexlify(hash).decode(),
+                binascii.hexlify(tmp).decode(),
+            )
+
+        pversion = v
+        prev_root = root
 
 
 if __name__ == "__main__":

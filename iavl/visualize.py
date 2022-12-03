@@ -25,7 +25,7 @@ def visualize_iavl(
     g = Digraph(comment="IAVL Tree")
 
     def get_node(hash: bytes) -> Node:
-        n, _ = decode_node(db.get(prefix + node_key(hash)))
+        n, _ = decode_node(db.get(prefix + node_key(hash)), hash)
         return n
 
     def vis_node(hash: bytes, n: Node):
