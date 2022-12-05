@@ -1,13 +1,24 @@
 """
 tree diff algorithm between two versions
 """
+import binascii
 import itertools
 from enum import IntEnum
 from typing import Callable, List, Optional, Tuple
 
+from cprotobuf import Field, ProtoEntity, decode_primitive, encode_primitive
+
 from .iavl import PersistedNode, Tree
 
 GetNode = Callable[bytes, Optional[PersistedNode]]
+
+
+class Op(IntEnum):
+    Update, Delete, Insert = range(3)
+
+
+Change = Tuple[bytes, Op, object]
+ChangeSet = List[Change]
 
 
 class Layer:
@@ -140,11 +151,7 @@ def diff_tree(get_node: GetNode, root1: PersistedNode, root2: PersistedNode):
         l2.next_layer(get_node)
 
 
-class Op(IntEnum):
-    Update, Delete, Insert = range(3)
-
-
-def split_operations(nodes1, nodes2) -> List[Tuple[bytes, Op, object]]:
+def split_operations(nodes1, nodes2) -> ChangeSet:
     """
     Contract: input nodes are all leaf nodes, sorted by node.key
 
@@ -204,7 +211,7 @@ def state_changes(get_node: GetNode, root1: PersistedNode, root2: PersistedNode)
     return []
 
 
-def apply_change_set(tree: Tree, changeset):
+def apply_change_set(tree: Tree, changeset: ChangeSet):
     """
     changeset: the result of `state_changes`
     """
@@ -218,3 +225,70 @@ def apply_change_set(tree: Tree, changeset):
             tree.remove(key)
         else:
             raise NotImplementedError(f"unknown op {op}")
+
+
+class StoreKVPairs(ProtoEntity):
+    """
+    protobuf format compatible with file streamer output
+    store an additional original value, it's empty for insert operation.
+    """
+
+    # the store key for the KVStore this pair originates from
+    store_key = Field("string", 1)
+    # true indicates a delete operation
+    delete = Field("bool", 2)
+    key = Field("bytes", 3)
+    value = Field("bytes", 4)
+    original = Field("bytes", 5)
+
+    def as_json(self):
+        d = {"key": binascii.hexlify(self.key).decode()}
+        if self.store_key:
+            d["store_key"] = self.store_key
+        if self.value:
+            d["value"] = binascii.hexlify(self.value).decode()
+        if self.original:
+            d["original"] = binascii.hexlify(self.original).decode()
+        if self.delete:
+            d["delete"] = True
+        return d
+
+
+def write_change_set(fp, changeset: ChangeSet, store=""):
+    """
+    write change set to file, compatible with the file streamer output.
+    """
+    chunks = []
+    for key, op, arg in changeset:
+        kv = StoreKVPairs(store_key=store, key=key)
+        if op == Op.Delete:
+            kv.delete = True
+            kv.original = arg
+        elif op == Op.Update:
+            kv.original, kv.value = arg
+        elif op == Op.Insert:
+            kv.value = arg
+        item = kv.SerializeToString()
+        chunks.append(encode_primitive("uint64", len(item)))
+        chunks.append(item)
+    data = b"".join(chunks)
+    fp.write(len(data).to_bytes(8, "big"))
+    fp.write(data)
+
+
+def parse_change_set(data):
+    """
+    return list of StoreKVPairs
+    """
+    size = int.from_bytes(data[:8], "big")
+    assert len(data) == size + 8
+    offset = 8
+    items = []
+    while offset < len(data):
+        size, n = decode_primitive(data[offset:], "uint64")
+        offset += n
+        item = StoreKVPairs()
+        item.ParseFromString(data[offset : offset + size])
+        items.append(item)
+        offset += size
+    return items
