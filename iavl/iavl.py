@@ -130,12 +130,16 @@ class NodeDB:
         from .diff import diff_tree
 
         counter = 0
+        # optimize the case when deleting from the beginning,
+        # in that case, the previous version will always be 0.
         prev_version = self.prev_version(v) or 0
         root1 = self.get_root_node(v)
         root2 = self.get_root_node(self.next_version(v))
         for orphaned, _ in diff_tree(self.get, root1, root2):
             for n in orphaned:
-                if n.version > prev_version:
+                if n.version > prev_version or not self.get_root_hash(n.version):
+                    # delete if the version don't exists anymore
+                    # TODO improve performance by cache the root information
                     self.batch_remove_node(n.hash)
                     counter += 1
 
