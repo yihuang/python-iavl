@@ -10,10 +10,20 @@ from hexbytes import HexBytes
 from . import dbm, diff
 from .diff import apply_change_set
 from .iavl import NodeDB, Tree
-from .utils import (decode_fast_node, diff_iterators, encode_stdint,
-                    fast_node_key, get_node, get_root_node,
-                    iavl_latest_version, iter_fast_nodes, iter_iavl_tree,
-                    load_commit_infos, root_key, store_prefix)
+from .utils import (
+    decode_fast_node,
+    diff_iterators,
+    encode_stdint,
+    fast_node_key,
+    get_node,
+    get_root_node,
+    iavl_latest_version,
+    iter_fast_nodes,
+    iter_iavl_tree,
+    load_commit_infos,
+    root_key,
+    store_prefix,
+)
 from .visualize import visualize_iavl
 
 
@@ -418,10 +428,11 @@ def test_state_round_trip(db, store, start_version):
         apply_change_set(tree, changeset)
         tmp = tree.save_version(dry_run=True)
         if (root.hash or hashlib.sha256().digest()) == tmp:
-            print(v, "ok")
+            print(v, len(changeset), "ok")
         else:
             print(
                 v,
+                len(changeset),
                 "fail",
                 binascii.hexlify(root.hash).decode(),
                 binascii.hexlify(tmp).decode(),

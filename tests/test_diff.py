@@ -1,15 +1,15 @@
 from typing import NamedTuple
 
 import rocksdb
-from iavl.diff import diff_sorted, diff_tree, state_changes
+from iavl.diff import DiffOptions, diff_sorted, diff_tree, state_changes
 from iavl.iavl import NodeDB, Tree
 
 
-def diff_tree_collect(ndb: NodeDB, v1: int, v2: int):
+def diff_tree_collect(ndb: NodeDB, v1: int, v2: int, opts: DiffOptions):
     orphaned = []
     new = []
 
-    for o, n in diff_tree(ndb.get, ndb.get_root_node(v1), ndb.get_root_node(v2)):
+    for o, n in diff_tree(ndb.get, ndb.get_root_node(v1), ndb.get_root_node(v2), opts):
         orphaned += o
         new += n
 
@@ -46,7 +46,7 @@ def test_diff_tree(tmp_path):
     assert not tree.set(b"hello1", b"world1")
     tree.save_version()
 
-    orphaned, new = diff_tree_collect(db, 1, 2)
+    orphaned, new = diff_tree_collect(db, 1, 2, DiffOptions.full())
     assert len(orphaned) == 1
     assert len(new) == 3
 
