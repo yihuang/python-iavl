@@ -1,6 +1,7 @@
 import binascii
 import hashlib
 import json
+import sys
 from pathlib import Path
 from typing import List, Optional
 
@@ -8,23 +9,12 @@ import click
 from hexbytes import HexBytes
 
 from . import dbm, diff
-from .diff import apply_change_set
 from .iavl import NodeDB, Tree
-from .utils import (
-    decode_fast_node,
-    diff_iterators,
-    encode_stdint,
-    fast_node_key,
-    get_node,
-    get_root_node,
-    iavl_latest_version,
-    iter_fast_nodes,
-    iter_iavl_tree,
-    load_commit_infos,
-    root_key,
-    store_prefix,
-)
-from .visualize import visualize_iavl
+from .utils import (decode_fast_node, diff_iterators, encode_stdint,
+                    fast_node_key, get_node, get_root_node,
+                    iavl_latest_version, iter_fast_nodes, iter_iavl_tree,
+                    load_commit_infos, root_key, store_prefix)
+from .visualize import visualize_iavl, visualize_pruned_nodes
 
 
 @click.group
@@ -425,7 +415,7 @@ def test_state_round_trip(db, store, start_version):
     ):
         # re-apply changeset
         tree = Tree(ndb, pversion)
-        apply_change_set(tree, changeset)
+        diff.apply_change_set(tree, changeset)
         tmp = tree.save_version(dry_run=True)
         if (root.hash or hashlib.sha256().digest()) == tmp:
             print(v, len(changeset), "ok")
@@ -458,6 +448,65 @@ def iter_state_changes(
 
         pversion = v
         prev_root = root
+
+
+@cli.command()
+@click.option(
+    "--db", help="path to application.db", type=click.Path(exists=True), required=True
+)
+@click.option("--store", "-s")
+@click.option(
+    "--version",
+    help="the version to prune",
+    default=1,
+)
+def visualize_pruning(db, store, version):
+    """
+    used to analyzsis performance of pruning algorithm on production data.
+    """
+    db = dbm.open(str(db), read_only=True)
+    prefix = store_prefix(store) if store is not None else b""
+    ndb = NodeDB(db, prefix=prefix)
+    predecessor = ndb.prev_version(version) or 0
+    successor = ndb.next_version(version)
+    root1 = ndb.get_root_node(version)
+    root2 = ndb.get_root_node(successor)
+
+    touched_nodes = set()
+
+    def trace_get(hash):
+        touched_nodes.add(hash)
+        return ndb.get(hash)
+
+    deleted = set()
+    for orphaned, _ in diff.diff_tree(
+        trace_get,
+        root1,
+        root2,
+        diff.DiffOptions.for_pruning(predecessor),
+    ):
+        for n in orphaned:
+            deleted.add(n.hash)
+
+    print(
+        "delete version:",
+        version,
+        "predecessor:",
+        predecessor,
+        "successor:",
+        successor,
+        file=sys.stderr,
+    )
+    print(
+        "delete:",
+        len(deleted),
+        "load:",
+        len(touched_nodes),
+        file=sys.stderr,
+    )
+    touched_nodes.update([root1.hash, root2.hash])
+    g = visualize_pruned_nodes(successor, touched_nodes, deleted, ndb)
+    print(g.source)
 
 
 if __name__ == "__main__":

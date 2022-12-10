@@ -4,6 +4,7 @@ from typing import List
 from graphviz import Digraph
 from hexbytes import HexBytes
 
+from .iavl import NodeDB
 from .utils import Node, decode_node, node_key
 
 
@@ -73,4 +74,37 @@ def visualize_iavl(
                     ]
                 )
 
+    return g
+
+
+def visualize_pruned_nodes(successor, hashes, pruned, ndb: NodeDB):
+    g = Digraph(comment="IAVL Tree")
+
+    def vis_node(n: Node):
+        if n.version == successor:
+            style = "solid"
+        elif n.hash in pruned:
+            style = "dotted,filled"
+        else:
+            style = "filled"
+        g.node(HexBytes(n.hash).hex(), label=label(node), style=style)
+
+    def vis_placeholder(hash: bytes):
+        g.node(HexBytes(hash).hex(), label="", style="solid")
+
+    nodes = [ndb.get(hash) for hash in hashes]
+    nodes.sort(key=lambda n: n.version)
+    for node in nodes:
+        vis_node(node)
+        if not node.is_leaf():
+            if node.left_node_ref not in hashes:
+                vis_placeholder(node.left_node_ref)
+            if node.right_node_ref not in hashes:
+                vis_placeholder(node.right_node_ref)
+            g.edges(
+                [
+                    (HexBytes(node.hash).hex(), HexBytes(node.right_node_ref).hex()),
+                    (HexBytes(node.hash).hex(), HexBytes(node.left_node_ref).hex()),
+                ]
+            )
     return g
