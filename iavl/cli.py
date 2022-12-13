@@ -390,7 +390,7 @@ def dump_changesets(db, start_version, end_version, store: Optional[str], out_di
     default=True,
     help="if parse the changeset kv pairs",
 )
-def print_changeset(file, parse_kv_pairs):
+def print_changesets(file, parse_kv_pairs):
     """
     decode and print the content of changeset files
     """
