@@ -6,7 +6,7 @@ authors = ["HuangYi <huang@crypto.com>"]
 
 [tool.poetry.dependencies]
 python = "^3.10"
-cprotobuf = "^0.1.11"
+cprotobuf = { git = "https://github.com/yihuang/cprotobuf.git", branch = "master" }
 click = "^8.1.3"
 hexbytes = "^0.3.0"
 python-snappy = "^0.6.1"

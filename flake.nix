@@ -16,7 +16,7 @@
             let
               buildSystems = {
                 rocksdb = [ "setuptools" "cython" "pkgconfig" ];
-                cprotobuf = [ "setuptools" ];
+                cprotobuf = [ "setuptools" "cython" ];
               };
             in
             lib.mapAttrs

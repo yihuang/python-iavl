@@ -401,7 +401,9 @@ def print_changesets(file, parse_kv_pairs):
                 data.madvise(mmap.MADV_NORMAL)
             else:
                 data.madvise(mmap.MADV_RANDOM)
-            for version, items in diff.parse_change_set(data, parse_kv_pairs):
+            for version, items in diff.parse_change_set(
+                memoryview(data), parse_kv_pairs
+            ):
                 print("version:", version)
                 if items is None:
                     continue

@@ -52,6 +52,13 @@ description = "pythonic and high performance protocol buffer implementation."
 category = "main"
 optional = false
 python-versions = "*"
+develop = false
+
+[package.source]
+type = "git"
+url = "https://github.com/yihuang/cprotobuf.git"
+reference = "master"
+resolved_reference = "32283bc02f8e0d2a63fd67e568c2b1e9ce3b9152"
 
 [[package]]
 name = "graphviz"
@@ -227,7 +234,7 @@ python-versions = ">=3.7"
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.10"
-content-hash = "91aebba68238c547c34a3d88c02d226c6a711185c441f49abca9f46201391a70"
+content-hash = "d505af27691566e3dcd1af652bc6c65bffce565cf790c10fd9d90f8382c80eed"
 
 [metadata.files]
 attrs = [
@@ -294,9 +301,7 @@ coverage = [
     {file = "coverage-6.5.0-pp36.pp37.pp38-none-any.whl", hash = "sha256:1431986dac3923c5945271f169f59c45b8802a114c8f548d611f2015133df77a"},
     {file = "coverage-6.5.0.tar.gz", hash = "sha256:f642e90754ee3e06b0e7e51bce3379590e76b7f76b708e1a71ff043f87025c84"},
 ]
-cprotobuf = [
-    {file = "cprotobuf-0.1.11.tar.gz", hash = "sha256:d2d88c8de840275205e64e530052c653dd25a0fb9e5cd9f7e39ce8f762d7c0a4"},
-]
+cprotobuf = []
 graphviz = [
     {file = "graphviz-0.20.1-py3-none-any.whl", hash = "sha256:587c58a223b51611c0cf461132da386edd896a029524ca61a1462b880bf97977"},
     {file = "graphviz-0.20.1.zip", hash = "sha256:8c58f14adaa3b947daf26c19bc1e98c4e0702cdc31cf99153e6f06904d492bf8"},
