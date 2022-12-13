@@ -386,12 +386,22 @@ def dump_changesets(db, start_version, end_version, store: Optional[str], out_di
     db = dbm.open(str(db), read_only=True)
     prefix = store_prefix(store) if store is not None else b""
     ndb = NodeDB(db, prefix=prefix)
-    with (Path(out_dir) / f"block-{start_version}").open("ab") as fp:
-        last_version = diff.truncate_change_set(fp)
-        if not fp.tell():
+
+    last_version = None
+    offset = 0
+    output = Path(out_dir) / f"block-{start_version}"
+    if output.exists():
+        with output.open("rb") as fp:
+            last_version, offset = diff.seek_last_version(fp)
+
+    with output.open("ab") as fp:
+        fp.seek(offset)
+        fp.truncate()
+        if offset == 0:
             fp.write(diff.VERSIONDB_MAGIC)
         if last_version is not None:
             start_version = last_version + 1
+            print("continue from", start_version)
         for _, v, _, changeset in iter_state_changes(
             db, ndb, start_version=start_version, end_version=end_version, prefix=prefix
         ):

@@ -159,7 +159,7 @@ def parse_change_set(data, parse_body=True):
         yield version, body
 
 
-def seek_last_version(data):
+def _seek_last_version(data):
     """
     find the last complete version and return the offset of the end,
     which will be used to truncate the file
@@ -186,17 +186,13 @@ def seek_last_version(data):
     return version, offset
 
 
-def truncate_change_set(fp):
+def seek_last_version(fp):
     """
     try to truncate the corrupted version data at the end of change set file,
     and return the last completed version, return None if none.
     """
     with mmap.mmap(fp.fileno(), 0, access=mmap.ACCESS_READ) as data:
         if len(data) < 8:
-            return None
+            return None, 0
         data.madvise(mmap.MADV_RANDOM)
-        version, offset = seek_last_version(data)
-        fp.seek(offset)
-        if len(data) > offset:
-            fp.truncate()
-        return version
+        return _seek_last_version(data)
