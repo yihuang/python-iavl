@@ -385,12 +385,21 @@ def dump_changesets(db, start_version, end_version, store: Optional[str], out_di
 
 @cli.command()
 @click.argument("file", type=click.Path(exists=True))
-def print_changeset(file):
+@click.option(
+    "--parse-kv-pairs/--no-parse-kv-pairs",
+    default=True,
+    help="if parse the changeset kv pairs",
+)
+def print_changeset(file, parse_kv_pairs):
     """
     decode and print the content of changeset files
     """
-    for version, items in diff.parse_change_set(Path(file).read_bytes()):
+    for version, items in diff.parse_change_set(
+        Path(file).read_bytes(), parse_kv_pairs
+    ):
         print("version:", version)
+        if items is None:
+            continue
         for item in items:
             print(json.dumps(item.as_json()))
 

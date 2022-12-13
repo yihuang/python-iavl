@@ -133,6 +133,7 @@ def parse_change_set(data, parse_body=True):
         offset += n
 
         if not parse_body:
+            offset += size
             yield version, None
             continue
 
