@@ -1,6 +1,7 @@
 import binascii
 import hashlib
 import json
+import mmap
 import sys
 from pathlib import Path
 from typing import List, Optional
@@ -394,14 +395,18 @@ def print_changesets(file, parse_kv_pairs):
     """
     decode and print the content of changeset files
     """
-    for version, items in diff.parse_change_set(
-        Path(file).read_bytes(), parse_kv_pairs
-    ):
-        print("version:", version)
-        if items is None:
-            continue
-        for item in items:
-            print(json.dumps(item.as_json()))
+    with Path(file).open("rb") as fp:
+        with mmap.mmap(fp.fileno(), 0, access=mmap.ACCESS_READ) as data:
+            if parse_kv_pairs:
+                data.madvise(mmap.MADV_NORMAL)
+            else:
+                data.madvise(mmap.MADV_RANDOM)
+            for version, items in diff.parse_change_set(data, parse_kv_pairs):
+                print("version:", version)
+                if items is None:
+                    continue
+                for item in items:
+                    print(json.dumps(item.as_json()))
 
 
 @cli.command()
