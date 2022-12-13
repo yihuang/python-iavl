@@ -2,6 +2,7 @@
 tree diff algorithm between two versions
 """
 import binascii
+import mmap
 from typing import List, NamedTuple
 
 from cprotobuf import (
@@ -11,6 +12,7 @@ from cprotobuf import (
     encode_data,
     encode_primitive,
 )
+from cprotobuf.internal import InternalDecodeError
 
 from .iavl import PersistedNode, Tree
 from .utils import GetNode, visit_iavl_nodes
@@ -155,3 +157,46 @@ def parse_change_set(data, parse_body=True):
             offset += l
         assert offset == limit, "corrupted file"
         yield version, body
+
+
+def seek_last_version(data):
+    """
+    find the last complete version and return the offset of the end,
+    which will be used to truncate the file
+    """
+    assert data[:8] == VERSIONDB_MAGIC
+    offset = 8
+
+    version = None
+    tmp = offset
+    while offset < len(data):
+        try:
+            version, n = decode_primitive(data[offset:], "uint64")
+            tmp += n
+            size, n = decode_primitive(data[offset + n :], "uint64")
+            tmp += n
+        except InternalDecodeError:
+            # corrupted version
+            break
+        tmp += size
+        if tmp > len(data):
+            # corrupted version
+            break
+        offset = tmp
+    return version, offset
+
+
+def truncate_change_set(fp):
+    """
+    try to truncate the corrupted version data at the end of change set file,
+    and return the last completed version, return None if none.
+    """
+    with mmap.mmap(fp.fileno(), 0, access=mmap.ACCESS_READ) as data:
+        if len(data) < 8:
+            return None
+        data.madvise(mmap.MADV_RANDOM)
+        version, offset = seek_last_version(data)
+        fp.seek(offset)
+        if len(data) > offset:
+            fp.truncate()
+        return version
