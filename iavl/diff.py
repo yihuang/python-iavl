@@ -4,8 +4,13 @@ tree diff algorithm between two versions
 import binascii
 from typing import List, NamedTuple
 
-from cprotobuf import (Field, ProtoEntity, decode_primitive, encode_data,
-                       encode_primitive)
+from cprotobuf import (
+    Field,
+    ProtoEntity,
+    decode_primitive,
+    encode_data,
+    encode_primitive,
+)
 
 from .iavl import PersistedNode, Tree
 from .utils import GetNode, visit_iavl_nodes
