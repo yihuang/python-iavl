@@ -9,6 +9,7 @@ from hexbytes import HexBytes
 from .dbm import DBM
 
 EMPTY_HASH = hashlib.sha256().digest()
+GetNode = Callable[bytes, Optional["PersistedNode"]]
 
 
 class CommitID(cprotobuf.ProtoEntity):
@@ -30,7 +31,7 @@ class StdInt(cprotobuf.ProtoEntity):
     value = cprotobuf.Field("uint64", 1)
 
 
-class Node(NamedTuple):
+class PersistedNode(NamedTuple):
     """
     immutable nodes that's loaded from and save to db
     """
@@ -179,7 +180,7 @@ def encode_bytes(bz: bytes) -> List[bytes]:
     ]
 
 
-def encode_node(node: Node) -> bytes:
+def encode_node(node: PersistedNode) -> bytes:
     chunks = [
         cprotobuf.encode_primitive("sint64", node.height),
         cprotobuf.encode_primitive("sint64", node.size),
@@ -192,7 +193,7 @@ def encode_node(node: Node) -> bytes:
     return b"".join(chunks)
 
 
-def decode_node(bz: bytes, hash: bytes) -> (Node, int):
+def decode_node(bz: bytes, hash: bytes) -> (PersistedNode, int):
     offset = 0
     height, n = cprotobuf.decode_primitive(bz[offset:], "sint64")
     offset += n
@@ -216,7 +217,7 @@ def decode_node(bz: bytes, hash: bytes) -> (Node, int):
         right_hash, n = decode_bytes(bz[offset:])
         offset += n
     return (
-        Node(
+        PersistedNode(
             height=height,
             size=size,
             version=version,
@@ -239,7 +240,9 @@ def decode_fast_node(bz: bytes) -> (int, bytes, int):
     return version, value, offset
 
 
-def get_node(db: DBM, hash: bytes, store: Optional[str] = None) -> Optional[Node]:
+def get_node(
+    db: DBM, hash: bytes, store: Optional[str] = None
+) -> Optional[PersistedNode]:
     prefix = store_prefix(store) if store is not None else b""
     bz = db.get(prefix + node_key(hash))
     if not bz:
@@ -248,7 +251,9 @@ def get_node(db: DBM, hash: bytes, store: Optional[str] = None) -> Optional[Node
     return node
 
 
-def get_root_node(db: DBM, version: int, store: Optional[str] = None) -> Optional[Node]:
+def get_root_node(
+    db: DBM, version: int, store: Optional[str] = None
+) -> Optional[PersistedNode]:
     prefix = store_prefix(store) if store is not None else b""
     hash = db.get(prefix + root_key(version))
     if not hash:
@@ -301,23 +306,23 @@ def iter_iavl_tree(
 
     prefix = store_prefix(store) if store is not None else b""
 
-    def get_node(hash: bytes) -> Node:
+    def get_node(hash: bytes) -> PersistedNode:
         n, _ = decode_node(db.get(prefix + node_key(hash)), hash)
         return n
 
-    def prune_check(key: bytes) -> (bool, bool):
-        prune_left = start is not None and key <= start
-        prune_right = end is not None and key >= end
+    def prune_check(node: PersistedNode) -> (bool, bool):
+        prune_left = start is not None and node.key <= start
+        prune_right = end is not None and node.key >= end
         return prune_left, prune_right
 
-    for _, node in visit_iavl_nodes(get_node, prune_check, node_hash):
+    for node in visit_iavl_nodes(get_node, prune_check, node_hash):
         if node.is_leaf() and within_range(node.key, start, end):
             yield node.key, node.value
 
 
 def visit_iavl_nodes(
-    get_node: Callable[bytes, Node],
-    prune_check: Callable[bytes, Tuple[bool, bool]],
+    get_node: GetNode,
+    prune_check: Callable[PersistedNode, Tuple[bool, bool]],
     hash: bytes,
     preorder: bool = True,
 ):
@@ -329,27 +334,27 @@ def visit_iavl_nodes(
     """
     stack: List[bytes] = [hash]
     while stack:
-        hash = stack.pop()
-        if isinstance(hash, tuple):
-            # already expanded, (hash, node)
-            yield hash
+        hash_or_node = stack.pop()
+        if isinstance(hash_or_node, PersistedNode):
+            # the postorder case, it's already expanded as PersistedNode
+            yield hash_or_node
             continue
 
-        node = get_node(hash)
+        node = get_node(hash_or_node)
 
         if not preorder:
             # postorder, visit later
-            stack.append((hash, node))
+            stack.append(node)
 
         if not node.is_leaf():
-            prune_left, prune_right = prune_check(node.key)
+            prune_left, prune_right = prune_check(node)
             if not prune_right:
                 stack.append(node.right_node_ref)
             if not prune_left:
                 stack.append(node.left_node_ref)
 
         if preorder:
-            yield hash, node
+            yield node
 
 
 def diff_iterators(it1, it2):

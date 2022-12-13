@@ -9,8 +9,14 @@ import cprotobuf
 
 import rocksdb
 
-from .utils import Node as PersistedNode
-from .utils import encode_bytes, node_key, root_key
+from .utils import (
+    GetNode,
+    PersistedNode,
+    encode_bytes,
+    node_key,
+    root_key,
+    visit_iavl_nodes,
+)
 
 NodeRef = Union[bytes, "Node"]
 
@@ -127,18 +133,20 @@ class NodeDB:
         """
         return how many nodes deleted
         """
-        from .diff import DiffOptions, diff_tree
+        predecessor = self.prev_version(v) or 0
+        successor = self.next_version(v)
+        assert successor is not None, "can't delete latest version"
 
         counter = 0
-        prev_version = self.prev_version(v) or 0
-        root1 = self.get_root_node(v)
-        root2 = self.get_root_node(self.next_version(v))
-        for orphaned, _ in diff_tree(
-            self.get, root1, root2, DiffOptions.for_pruning(prev_version)
+        for n in delete_version(
+            self.get,
+            v,
+            predecessor,
+            self.get_root_hash(v),
+            self.get_root_hash(successor),
         ):
-            counter += len(orphaned)
-            for n in orphaned:
-                self.batch_remove_node(n.hash)
+            counter += 1
+            self.batch_remove_node(n.hash)
 
         self.batch_remove_root_hash(v)
         self.batch_commit()
@@ -491,3 +499,44 @@ def get_recursive(
             return get_recursive(ndb, key, node.left_node(ndb))
         else:
             return get_recursive(ndb, key, node.right_node(ndb))
+
+
+def delete_version(
+    get_node: GetNode,
+    v: int,
+    predecessor: int,
+    root: bytes,
+    successor_root: bytes,
+):
+    """
+    yield the orphaned nodes to delete
+
+    first traverse successor version to find the shared sub-root nodes,
+    then traverse the target version to find orphaned nodes who are not shared,
+    Skip nodes whose version <= predecessor from both traversal.
+    """
+    if successor_root:
+
+        def successor_prune(n: PersistedNode) -> (bool, bool):
+            b = n.version <= v
+            return b, b
+
+        shared = set(
+            n.hash
+            for n in visit_iavl_nodes(get_node, successor_prune, successor_root)
+            if predecessor < n.version <= v
+        )
+    else:
+        shared = set()
+
+    def prune(n: PersistedNode) -> (bool, bool):
+        if n.hash in shared:
+            return True, True
+        elif n.version <= predecessor:
+            return True, True
+        return False, False
+
+    if root:
+        for n in visit_iavl_nodes(get_node, prune, root):
+            if n.version > predecessor and n.hash not in shared:
+                yield n

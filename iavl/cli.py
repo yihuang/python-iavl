@@ -9,11 +9,21 @@ import click
 from hexbytes import HexBytes
 
 from . import dbm, diff
-from .iavl import NodeDB, Tree
-from .utils import (decode_fast_node, diff_iterators, encode_stdint,
-                    fast_node_key, get_node, get_root_node,
-                    iavl_latest_version, iter_fast_nodes, iter_iavl_tree,
-                    load_commit_infos, root_key, store_prefix)
+from .iavl import NodeDB, Tree, delete_version
+from .utils import (
+    decode_fast_node,
+    diff_iterators,
+    encode_stdint,
+    fast_node_key,
+    get_node,
+    get_root_node,
+    iavl_latest_version,
+    iter_fast_nodes,
+    iter_iavl_tree,
+    load_commit_infos,
+    root_key,
+    store_prefix,
+)
 from .visualize import visualize_iavl, visualize_pruned_nodes
 
 
@@ -417,14 +427,14 @@ def test_state_round_trip(db, store, start_version):
         tree = Tree(ndb, pversion)
         diff.apply_change_set(tree, changeset)
         tmp = tree.save_version(dry_run=True)
-        if (root.hash or hashlib.sha256().digest()) == tmp:
+        if (root or hashlib.sha256().digest()) == tmp:
             print(v, len(changeset), "ok")
         else:
             print(
                 v,
                 len(changeset),
                 "fail",
-                binascii.hexlify(root.hash).decode(),
+                binascii.hexlify(root).decode(),
                 binascii.hexlify(tmp).decode(),
             )
 
@@ -433,7 +443,7 @@ def iter_state_changes(
     db: dbm.DBM, ndb: NodeDB, start_version=0, end_version=None, prefix=b""
 ):
     pversion = ndb.prev_version(start_version) or 0
-    prev_root = ndb.get_root_node(pversion)
+    prev_root = ndb.get_root_hash(pversion)
     it = db.iteritems()
     it.seek(prefix + root_key(start_version))
     for k, hash in it:
@@ -443,11 +453,10 @@ def iter_state_changes(
         if end_version is not None and v >= end_version:
             break
 
-        root = ndb.get(hash)
-        yield pversion, v, root, diff.state_changes(ndb.get, prev_root, root)
+        yield pversion, v, hash, diff.state_changes(ndb.get, pversion, prev_root, hash)
 
         pversion = v
-        prev_root = root
+        prev_root = hash
 
 
 @cli.command()
@@ -469,8 +478,8 @@ def visualize_pruning(db, store, version):
     ndb = NodeDB(db, prefix=prefix)
     predecessor = ndb.prev_version(version) or 0
     successor = ndb.next_version(version)
-    root1 = ndb.get_root_node(version)
-    root2 = ndb.get_root_node(successor)
+    root1 = ndb.get_root_hash(version)
+    root2 = ndb.get_root_hash(successor)
 
     touched_nodes = set()
 
@@ -479,14 +488,14 @@ def visualize_pruning(db, store, version):
         return ndb.get(hash)
 
     deleted = set()
-    for orphaned, _ in diff.diff_tree(
+    for n in delete_version(
         trace_get,
+        version,
+        predecessor,
         root1,
         root2,
-        diff.DiffOptions.for_pruning(predecessor),
     ):
-        for n in orphaned:
-            deleted.add(n.hash)
+        deleted.add(n.hash)
 
     print(
         "delete version:",
@@ -504,7 +513,6 @@ def visualize_pruning(db, store, version):
         len(touched_nodes),
         file=sys.stderr,
     )
-    touched_nodes.update([root1.hash, root2.hash])
     g = visualize_pruned_nodes(successor, touched_nodes, deleted, ndb)
     print(g.source)
 

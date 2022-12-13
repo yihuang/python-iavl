@@ -5,10 +5,10 @@ from graphviz import Digraph
 from hexbytes import HexBytes
 
 from .iavl import NodeDB
-from .utils import Node, decode_node, node_key
+from .utils import PersistedNode, decode_node, node_key
 
 
-def label(node: Node):
+def label(node: PersistedNode):
     s = binascii.hexlify(node.key).decode()
     if len(s) > 10:
         s = s[:4] + "..." + s[-4:]
@@ -25,11 +25,11 @@ def visualize_iavl(
 ) -> Digraph:
     g = Digraph(comment="IAVL Tree")
 
-    def get_node(hash: bytes) -> Node:
+    def get_node(hash: bytes) -> PersistedNode:
         n, _ = decode_node(db.get(prefix + node_key(hash)), hash)
         return n
 
-    def vis_node(hash: bytes, n: Node):
+    def vis_node(hash: bytes, n: PersistedNode):
         style = "solid" if n.version == version else "filled"
         g.node(HexBytes(hash).hex(), label=label(node), style=style)
 
@@ -80,7 +80,7 @@ def visualize_iavl(
 def visualize_pruned_nodes(successor, hashes, pruned, ndb: NodeDB):
     g = Digraph(comment="IAVL Tree")
 
-    def vis_node(n: Node):
+    def vis_node(n: PersistedNode):
         if n.version == successor:
             style = "solid"
         elif n.hash in pruned:
