@@ -196,4 +196,4 @@ def seek_last_version(fp):
         if len(data) < 8:
             return None, 0
         data.madvise(mmap.MADV_RANDOM)
-        return _seek_last_version(data)
+        return _seek_last_version(memoryview(data))
