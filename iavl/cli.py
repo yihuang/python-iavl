@@ -402,6 +402,8 @@ def dump_changesets(db, start_version, end_version, store: Optional[str], out_di
         if last_version is not None:
             start_version = last_version + 1
             print("continue from", start_version)
+        else:
+            print("start from", start_version)
         for _, v, _, changeset in iter_state_changes(
             db, ndb, start_version=start_version, end_version=end_version, prefix=prefix
         ):
