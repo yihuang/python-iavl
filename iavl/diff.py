@@ -171,9 +171,9 @@ def _seek_last_version(data):
     tmp = offset
     while offset < len(data):
         try:
-            version, n = decode_primitive(data[offset:], "uint64")
+            tmp_version, n = decode_primitive(data[tmp:], "uint64")
             tmp += n
-            size, n = decode_primitive(data[offset + n :], "uint64")
+            size, n = decode_primitive(data[tmp:], "uint64")
             tmp += n
         except InternalDecodeError:
             # corrupted version
@@ -183,6 +183,7 @@ def _seek_last_version(data):
             # corrupted version
             break
         offset = tmp
+        version = tmp_version
     return version, offset
 
 
