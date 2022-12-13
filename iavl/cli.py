@@ -10,20 +10,10 @@ from hexbytes import HexBytes
 
 from . import dbm, diff
 from .iavl import NodeDB, Tree, delete_version
-from .utils import (
-    decode_fast_node,
-    diff_iterators,
-    encode_stdint,
-    fast_node_key,
-    get_node,
-    get_root_node,
-    iavl_latest_version,
-    iter_fast_nodes,
-    iter_iavl_tree,
-    load_commit_infos,
-    root_key,
-    store_prefix,
-)
+from .utils import (decode_fast_node, diff_iterators, encode_stdint,
+                    fast_node_key, get_node, get_root_node,
+                    iavl_latest_version, iter_fast_nodes, iter_iavl_tree,
+                    load_commit_infos, root_key, store_prefix)
 from .visualize import visualize_iavl, visualize_pruned_nodes
 
 
@@ -385,11 +375,12 @@ def dump_changesets(db, start_version, end_version, store: Optional[str], out_di
     db = dbm.open(str(db), read_only=True)
     prefix = store_prefix(store) if store is not None else b""
     ndb = NodeDB(db, prefix=prefix)
-    for _, v, _, changeset in iter_state_changes(
-        db, ndb, start_version=start_version, end_version=end_version, prefix=prefix
-    ):
-        with (Path(out_dir) / f"block-{v}-data").open("wb") as fp:
-            diff.write_change_set(fp, changeset)
+    with (Path(out_dir) / f"block-{start_version}").open("wb") as fp:
+        fp.write(diff.VERSIONDB_MAGIC)
+        for _, v, _, changeset in iter_state_changes(
+            db, ndb, start_version=start_version, end_version=end_version, prefix=prefix
+        ):
+            diff.append_change_set(fp, v, changeset)
 
 
 @cli.command()
@@ -398,8 +389,10 @@ def print_changeset(file):
     """
     decode and print the content of changeset files
     """
-    for item in diff.parse_change_set(Path(file).read_bytes()):
-        print(json.dumps(item.as_json()))
+    for version, items in diff.parse_change_set(Path(file).read_bytes()):
+        print("version:", version)
+        for item in items:
+            print(json.dumps(item.as_json()))
 
 
 @cli.command()

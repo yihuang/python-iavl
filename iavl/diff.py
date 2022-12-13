@@ -2,63 +2,44 @@
 tree diff algorithm between two versions
 """
 import binascii
-from enum import IntEnum
-from typing import List, Tuple
+from typing import List, NamedTuple
 
-from cprotobuf import Field, ProtoEntity, decode_primitive, encode_primitive
+from cprotobuf import (Field, ProtoEntity, decode_primitive, encode_data,
+                       encode_primitive)
 
 from .iavl import PersistedNode, Tree
 from .utils import GetNode, visit_iavl_nodes
 
-
-class Op(IntEnum):
-    Update, Delete, Insert = range(3)
+VERSIONDB_MAGIC = b"VERDB000"
 
 
-Change = Tuple[bytes, Op, object]
-ChangeSet = List[Change]
+class KVPair(NamedTuple):
+    delete: bool = False
+    key: bytes = None
+    value: bytes = None
+
+    def as_json(self):
+        d = {"key": binascii.hexlify(self.key).decode()}
+        if self.value:
+            d["value"] = binascii.hexlify(self.value).decode()
+        if self.delete:
+            d["delete"] = True
+        return d
 
 
-def split_operations(nodes1, nodes2) -> ChangeSet:
-    """
-    Contract: input nodes are all leaf nodes, sorted by node.key
+class StoreKVPair(ProtoEntity):
+    delete = Field("bool", 1)
+    key = Field("bytes", 2)
+    value = Field("bytes", 3)
 
-    return: [(key, op, arg)]
-    arg: original value if op==Delete
-         new value if op==Insert
-         (original value, new value) if op==Update
-    """
-    i1 = i2 = 0
-    result = []
-    while True:
-        if i1 > len(nodes1) - 1:
-            for n in nodes2[i2:]:
-                result.append((n.key, Op.Insert, n.value))
-            break
-        if i2 > len(nodes2) - 1:
-            for n in nodes1[i1:]:
-                result.append((n.key, Op.Delete, n.value))
-            break
-        n1 = nodes1[i1]
-        n2 = nodes2[i2]
-        k1 = n1.key
-        k2 = n2.key
-        if k1 == k2:
-            result.append((k1, Op.Update, (n1.value, n2.value)))
-            i1 += 1
-            i2 += 1
-        elif k1 < k2:
-            # proceed to next node in nodes1 until catch up with nodes2
-            result.append((n1.key, Op.Delete, n1.value))
-            i1 += 1
-        else:
-            # proceed to next node in nodes2 until catch up with nodes1
-            result.append((n2.key, Op.Insert, n2.value))
-            i2 += 1
-    return result
+    def to_pair(self):
+        return KVPair(self.delete, self.key, self.value)
 
 
-def state_changes(get_node: GetNode, version, root, successor_root):
+ChangeSet = List[KVPair]
+
+
+def state_changes(get_node: GetNode, version, root, successor_root) -> ChangeSet:
     """
     extract state changes from two versions of the iavl tree.
 
@@ -66,14 +47,12 @@ def state_changes(get_node: GetNode, version, root, successor_root):
     and new leaf nodes, then traverse the target version to find the orphaned leaf
     nodes, then extract kv pair operations from it.
 
-    return: [(key, op, arg)]
-    arg: original value if op==Delete
-         new value if op==Insert
-         (original value, new value) if op==Update
+    return: [KVPair]
     """
 
     shared = set()
-    new = []
+    new = []  # update and inserts
+    new_keys = set()
     if successor_root:
 
         def successor_prune(n: PersistedNode) -> (bool, bool):
@@ -84,102 +63,89 @@ def state_changes(get_node: GetNode, version, root, successor_root):
             if n.version <= version:
                 shared.add(n.hash)
             elif n.is_leaf():
-                new.append(n)
+                new.append(KVPair(key=n.key, value=n.value))
+                new_keys.add(n.key)
 
     def prune(n: PersistedNode) -> (bool, bool):
         b = n.hash in shared
         return b, b
 
     if root:
-        orphaned = [
-            n
+        deleted = [
+            KVPair(delete=True, key=n.key)
             for n in visit_iavl_nodes(get_node, prune, root)
-            if n.is_leaf() and n.hash not in shared
+            if n.is_leaf() and n.hash not in shared and n.key not in new_keys
         ]
     else:
-        orphaned = []
+        deleted = []
 
-    return split_operations(orphaned, new)
+    changeset = new + deleted
+    changeset.sort(key=lambda n: n.key)
+    return changeset
 
 
 def apply_change_set(tree: Tree, changeset: ChangeSet):
     """
     changeset: the result of `state_changes`
     """
-    for key, op, arg in changeset:
-        if op == Op.Insert:
-            tree.set(key, arg)
-        elif op == Op.Update:
-            _, value = arg
-            tree.set(key, value)
-        elif op == Op.Delete:
-            tree.remove(key)
+    for pair in changeset:
+        if pair.delete:
+            tree.remove(pair.key)
         else:
-            raise NotImplementedError(f"unknown op {op}")
+            tree.set(pair.key, pair.value)
 
 
-class StoreKVPairs(ProtoEntity):
+def append_change_set(fp, version: int, changeset: ChangeSet):
     """
-    protobuf format compatible with file streamer output
-    store an additional original value, it's empty for insert operation.
-    """
+    write change set to file, file format:
 
-    # the store key for the KVStore this pair originates from
-    store_key = Field("string", 1)
-    # true indicates a delete operation
-    delete = Field("bool", 2)
-    key = Field("bytes", 3)
-    value = Field("bytes", 4)
-    original = Field("bytes", 5)
-
-    def as_json(self):
-        d = {"key": binascii.hexlify(self.key).decode()}
-        if self.store_key:
-            d["store_key"] = self.store_key
-        if self.value:
-            d["value"] = binascii.hexlify(self.value).decode()
-        if self.original:
-            d["original"] = binascii.hexlify(self.original).decode()
-        if self.delete:
-            d["delete"] = True
-        return d
-
-
-def write_change_set(fp, changeset: ChangeSet, store=""):
-    """
-    write change set to file, compatible with the file streamer output.
+    ```
+    version: varint
+    size: varint little-endian # the total size of kv-pairs, so we can skip faster
+    kv-pairs: length prefixed proto msg
+    ```
     """
     chunks = []
-    for key, op, arg in changeset:
-        kv = StoreKVPairs(store_key=store, key=key)
-        if op == Op.Delete:
-            kv.delete = True
-            kv.original = arg
-        elif op == Op.Update:
-            kv.original, kv.value = arg
-        elif op == Op.Insert:
-            kv.value = arg
-        item = kv.SerializeToString()
+    for kv in changeset:
+        item = encode_data(StoreKVPair, kv._asdict())
         chunks.append(encode_primitive("uint64", len(item)))
         chunks.append(item)
     data = b"".join(chunks)
-    fp.write(len(data).to_bytes(8, "big"))
+    fp.write(encode_primitive("uint64", version))
+    fp.write(encode_primitive("uint64", len(data)))
     fp.write(data)
 
 
-def parse_change_set(data):
+def parse_change_set(data, parse_body=True):
     """
-    return list of StoreKVPairs
+    data is the bytes slice of a change set file,
+    could be mmapped from the disk file.
+
+    yield (version, [KVPair])
     """
-    size = int.from_bytes(data[:8], "big")
-    assert len(data) == size + 8
+    assert data[:8] == VERSIONDB_MAGIC
     offset = 8
-    items = []
+
     while offset < len(data):
+        version, n = decode_primitive(data[offset:], "uint64")
+        offset += n
         size, n = decode_primitive(data[offset:], "uint64")
         offset += n
-        item = StoreKVPairs()
-        item.ParseFromString(data[offset : offset + size])
-        items.append(item)
-        offset += size
-    return items
+
+        if not parse_body:
+            yield version, None
+            continue
+
+        body = []
+        limit = offset + size
+        while offset < limit:
+            l, n = decode_primitive(data[offset:], "uint64")
+            offset += n
+
+            pair = StoreKVPair()
+            pair.ParseFromString(data[offset : offset + l])
+            body.append(pair.to_pair())
+
+            offset += l
+        assert offset == limit, "corrupted file"
+        yield version, body

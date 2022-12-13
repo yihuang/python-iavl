@@ -2,7 +2,7 @@ from typing import NamedTuple
 
 import rocksdb
 from hexbytes import HexBytes
-from iavl.diff import Op, apply_change_set
+from iavl.diff import KVPair, apply_change_set
 from iavl.iavl import NodeDB, Tree
 
 
@@ -41,16 +41,22 @@ EXPECT_OUTPUT = [
 
 
 ChangeSets = [
-    [(b"hello", Op.Insert, b"world")],
-    [(b"hello", Op.Update, (b"world", b"world1")), (b"hello1", Op.Insert, b"world1")],
-    [(b"hello2", Op.Insert, b"world1"), (b"hello3", Op.Insert, b"world1")],
-    [(b"hello%02d" % i, Op.Insert, b"world1") for i in range(20)],
-    [(b"hello", Op.Delete, b"world1"), (b"hello19", Op.Delete, b"world1")],
+    [KVPair(key=b"hello", value=b"world")],
+    [
+        KVPair(key=b"hello", value=b"world1"),
+        KVPair(key=b"hello1", value=b"world1"),
+    ],
+    [
+        KVPair(key=b"hello2", value=b"world1"),
+        KVPair(key=b"hello3", value=b"world1"),
+    ],
+    [KVPair(key=b"hello%02d" % i, value=b"world1") for i in range(20)],
+    [KVPair(key=b"hello", delete=True), KVPair(key=b"hello19", delete=True)],
     # try to cover all balancing cases
-    [(b"aello%02d" % i, Op.Insert, b"world1") for i in range(21)],
+    [KVPair(key=b"aello%02d" % i, value=b"world1") for i in range(21)],
     # remove most of the values
-    [(b"aello%02d" % i, Op.Delete, b"world1") for i in range(21)]
-    + [(b"hello%02d" % i, Op.Delete, b"world1") for i in range(19)],
+    [KVPair(key=b"aello%02d" % i, delete=True) for i in range(21)]
+    + [KVPair(key=b"hello%02d" % i, delete=True) for i in range(19)],
 ]
 
 
