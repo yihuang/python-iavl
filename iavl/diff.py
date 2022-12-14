@@ -108,7 +108,7 @@ def append_change_set(fp, version: int, changeset: ChangeSet):
 
     ```
     version: varint
-    size: varint little-endian # the total size of kv-pairs, so we can skip faster
+    size: varint # the total size of kv-pairs, so we can skip faster
     kv-pairs: length prefixed proto msg
     ```
     """
