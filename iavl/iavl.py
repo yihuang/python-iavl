@@ -20,6 +20,8 @@ from .utils import (
 
 NodeRef = Union[bytes, "Node"]
 
+DEFAULT_CACHE_SIZE = 500000
+
 
 class NodeDB:
     """
@@ -30,12 +32,21 @@ class NodeDB:
     batch: rocksdb.WriteBatch
     cache: Dict[bytes, PersistedNode]
     prefix: bytes
+    cache_size: int
 
-    def __init__(self, db, prefix=b""):
+    def __init__(self, db, prefix=b"", cache_size=DEFAULT_CACHE_SIZE):
         self.db = db
         self.batch = None
         self.cache = {}
+        self.cache_size = cache_size
         self.prefix = prefix
+
+    def _set_cache(self, hash, node):
+        if self.cache_size == 0:
+            return
+        if len(self.cache) >= self.cache_size:
+            self.cache = {}
+        self.cache[hash] = node
 
     def get(self, hash: bytes) -> Optional[PersistedNode]:
         try:
@@ -45,7 +56,7 @@ class NodeDB:
             if bz is None:
                 return
             node = PersistedNode.decode(bz, hash)
-            self.cache[hash] = node
+            self._set_cache(hash, node)
             return node
 
     def resolve_node(self, ref: NodeRef) -> Union["Node", PersistedNode, None]:
@@ -69,7 +80,7 @@ class NodeDB:
     def batch_set_node(self, hash: bytes, node: PersistedNode):
         if self.batch is None:
             self.batch = rocksdb.WriteBatch()
-        self.cache[hash] = node
+        self._set_cache(hash, node)
         self.batch.put(node_key(hash), node.encode())
 
     def batch_set_root_hash(self, version: int, hash: bytes):

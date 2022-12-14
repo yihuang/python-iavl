@@ -10,7 +10,7 @@ import click
 from hexbytes import HexBytes
 
 from . import dbm, diff
-from .iavl import NodeDB, Tree, delete_version
+from .iavl import DEFAULT_CACHE_SIZE, NodeDB, Tree, delete_version
 from .utils import (
     decode_fast_node,
     diff_iterators,
@@ -377,7 +377,14 @@ def visualize(db, version, store=None, include_prev_version=False):
     type=click.Path(exists=True),
     required=True,
 )
-def dump_changesets(db, start_version, end_version, store: Optional[str], out_dir: str):
+@click.option(
+    "--cache-size",
+    help="the output directory to save the data files",
+    default=DEFAULT_CACHE_SIZE,
+)
+def dump_changesets(
+    db, start_version, end_version, store: Optional[str], out_dir: str, cache_size: int
+):
     """
     extract changeset by comparing iavl versions and save in files
     with compatible format with file streamer.
@@ -385,7 +392,7 @@ def dump_changesets(db, start_version, end_version, store: Optional[str], out_di
     """
     db = dbm.open(str(db), read_only=True)
     prefix = store_prefix(store) if store is not None else b""
-    ndb = NodeDB(db, prefix=prefix)
+    ndb = NodeDB(db, prefix=prefix, cache_size=cache_size)
 
     last_version = None
     offset = 0
