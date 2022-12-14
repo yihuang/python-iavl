@@ -143,7 +143,9 @@ def parse_change_set(data, parse_body=True):
         size, n = decode_primitive(data[offset:], "uint64")
         offset += n
 
-        assert offset + size <= len(data), "incomplete file"
+        if offset + size > len(data):
+            # incomplete file
+            break
 
         body = None
         if parse_body:
