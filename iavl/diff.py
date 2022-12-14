@@ -39,8 +39,17 @@ class StoreKVPair(ProtoEntity):
     key = Field("bytes", 2)
     value = Field("bytes", 3)
 
-    def to_pair(self):
-        return KVPair(self.delete, self.key, self.value)
+    def as_json(self):
+        d = {"key": binascii.hexlify(self.key).decode()}
+        if self.value:
+            d["value"] = binascii.hexlify(self.value).decode()
+        if self.delete:
+            d["delete"] = True
+        return d
+
+
+class StoreChangeSet(ProtoEntity):
+    pairs = Field(StoreKVPair, 1, repeated=True)
 
 
 ChangeSet = List[KVPair]
@@ -112,12 +121,7 @@ def append_change_set(fp, version: int, changeset: ChangeSet):
     kv-pairs: length prefixed proto msg
     ```
     """
-    chunks = []
-    for kv in changeset:
-        item = encode_data(StoreKVPair, kv._asdict())
-        chunks.append(encode_primitive("uint64", len(item)))
-        chunks.append(item)
-    data = b"".join(chunks)
+    data = encode_data(StoreChangeSet, {"pairs": [kv._asdict() for kv in changeset]})
     fp.write(encode_primitive("uint64", version))
     fp.write(encode_primitive("uint64", len(data)))
     fp.write(data)
@@ -139,23 +143,14 @@ def parse_change_set(data, parse_body=True):
         size, n = decode_primitive(data[offset:], "uint64")
         offset += n
 
-        if not parse_body:
-            offset += size
-            yield version, None
-            continue
+        assert offset + size <= len(data), "incomplete file"
 
-        body = []
-        limit = offset + size
-        while offset < limit:
-            l, n = decode_primitive(data[offset:], "uint64")
-            offset += n
-
-            pair = StoreKVPair()
-            pair.ParseFromString(data[offset : offset + l])
-            body.append(pair.to_pair())
-
-            offset += l
-        assert offset == limit, "corrupted file"
+        body = None
+        if parse_body:
+            changeSet = StoreChangeSet()
+            changeSet.ParseFromString(data[offset : offset + size])
+            body = changeSet.pairs
+        offset += size
         yield version, body
 
 
