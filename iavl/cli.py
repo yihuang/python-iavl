@@ -535,7 +535,7 @@ def verify_changeset(file, version):
             if len(buf) < 8:
                 break
             v = int.from_bytes(buf, "little")
-            if version > 0 and v >= version:
+            if version > 0 and v > version:
                 break
 
             buf = fp.read(8)
