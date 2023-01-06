@@ -11,21 +11,10 @@ from hexbytes import HexBytes
 
 from . import dbm, diff
 from .iavl import NodeDB, Tree, delete_version
-from .utils import (
-    ChangeSet,
-    decode_fast_node,
-    diff_iterators,
-    encode_stdint,
-    fast_node_key,
-    get_node,
-    get_root_node,
-    iavl_latest_version,
-    iter_fast_nodes,
-    iter_iavl_tree,
-    load_commit_infos,
-    root_key,
-    store_prefix,
-)
+from .utils import (ChangeSet, decode_fast_node, diff_iterators, encode_stdint,
+                    fast_node_key, get_node, get_root_node,
+                    iavl_latest_version, iter_fast_nodes, iter_iavl_tree,
+                    load_commit_infos, root_key, store_prefix)
 from .visualize import visualize_iavl, visualize_pruned_nodes
 
 
@@ -530,21 +519,36 @@ def verify_changeset(file, version):
     """
     verify changeset file, replay the changeset and output the final root hash.
     """
-    # dummy db
+
+    if file == "-":
+        fp = sys.stdin.buffer
+    else:
+        fp = open(file, "rb")
+
     with tempfile.TemporaryDirectory() as tmpdir:
+        # create dummy db
         db = dbm.open(tmpdir)
         tree = Tree(NodeDB(db), version=0)
-        if file == "-":
-            fp = sys.stdin.buffer
-        else:
-            fp = open(file, "rb")
+
         while True:
-            v = int.from_bytes(fp.read(8), "little")
+            buf = fp.read(8)
+            if len(buf) < 8:
+                break
+            v = int.from_bytes(buf, "little")
             if version > 0 and v >= version:
                 break
-            size = int.from_bytes(fp.read(8), "little")
+
+            buf = fp.read(8)
+            if len(buf) < 8:
+                break
+            size = int.from_bytes(buf, "little")
+
             cs = ChangeSet()
-            cs.ParseFromString(fp.read(size))
+
+            buf = fp.read(size)
+            if len(buf) < size:
+                break
+            cs.ParseFromString(buf)
 
             for pair in cs.pairs:
                 if pair.delete:
@@ -553,7 +557,7 @@ def verify_changeset(file, version):
                     tree.set(pair.key, pair.value)
 
             tree.version += 1
-            assert tree.version == v
+            assert tree.version == v, f"version mismatch: {tree.version} != {v}"
 
         root_hash = tree.save_version(True)
         print(tree.version, binascii.hexlify(root_hash).decode())
