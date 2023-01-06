@@ -2,6 +2,7 @@ import binascii
 import hashlib
 import json
 import sys
+import tempfile
 from pathlib import Path
 from typing import List, Optional
 
@@ -11,6 +12,7 @@ from hexbytes import HexBytes
 from . import dbm, diff
 from .iavl import NodeDB, Tree, delete_version
 from .utils import (
+    ChangeSet,
     decode_fast_node,
     diff_iterators,
     encode_stdint,
@@ -515,6 +517,46 @@ def visualize_pruning(db, store, version):
     )
     g = visualize_pruned_nodes(successor, touched_nodes, deleted, ndb)
     print(g.source)
+
+
+@cli.command()
+@click.option(
+    "--version",
+    help="the target version, default to the last version in the file",
+    default=0,
+)
+@click.argument("file", type=click.Path())
+def verify_changeset(file, version):
+    """
+    verify changeset file, replay the changeset and output the final root hash.
+    """
+    # dummy db
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db = dbm.open(tmpdir)
+        tree = Tree(NodeDB(db), version=0)
+        if file == "-":
+            fp = sys.stdin.buffer
+        else:
+            fp = open(file, "rb")
+        while True:
+            v = int.from_bytes(fp.read(8), "little")
+            if version > 0 and v >= version:
+                break
+            size = int.from_bytes(fp.read(8), "little")
+            cs = ChangeSet()
+            cs.ParseFromString(fp.read(size))
+
+            for pair in cs.pairs:
+                if pair.delete:
+                    tree.remove(pair.key)
+                else:
+                    tree.set(pair.key, pair.value)
+
+            tree.version += 1
+            assert tree.version == v
+
+        root_hash = tree.save_version(True)
+        print(tree.version, binascii.hexlify(root_hash).decode())
 
 
 if __name__ == "__main__":

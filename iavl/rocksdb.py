@@ -26,4 +26,7 @@ class WriteBatch:
 
 
 def open(dir, read_only: bool = False):
-    return rocksdb.DB(str(dir), rocksdb.Options(), read_only=read_only)
+    opts = rocksdb.Options()
+    if not read_only:
+        opts.create_if_missing = True
+    return rocksdb.DB(str(dir), opts, read_only=read_only)

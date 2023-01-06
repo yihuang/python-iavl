@@ -421,3 +421,13 @@ def encode_stdint(n: int) -> bytes:
     o = StdInt()
     o.value = n
     return bytes(o.SerializeToString())
+
+
+class KVPair(cprotobuf.ProtoEntity):
+    delete = cprotobuf.Field("bool", 1)
+    key = cprotobuf.Field("bytes", 2)
+    value = cprotobuf.Field("bytes", 3)
+
+
+class ChangeSet(cprotobuf.ProtoEntity):
+    pairs = cprotobuf.Field(KVPair, 1, repeated=True)
