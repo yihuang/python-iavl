@@ -358,7 +358,7 @@ class Tree:
         "remove the key and return the value, return None if not found."
         if self.root_node_ref is None:
             return
-        value, new = remove_recursive(
+        value, new, _ = remove_recursive(
             self.ndb, key, self.root_node_ref, self.version + 1
         )
         if value is None:
@@ -394,32 +394,36 @@ def remove_recursive(
 ) -> (Optional[bytes], Optional[NodeRef]):
     """
     returns (removed value, new node if changed)
-    - (None, _) -> nothing changed in subtree
-    - (value, None) -> leaf node is removed
-    - (value, new node) -> subtree changed
+    - (None, _, None) -> nothing changed in subtree
+    - (value, None, newKey) -> leaf node is removed
+    - (value, new node, newKey) -> subtree changed
     """
     node = ndb.resolve_node(ref)
     if node.is_leaf():
         if node.key == key:
-            return node.value, None
+            return node.value, None, None
         else:
-            return None, None
+            return None, None, None
     else:
         turn_left = key < node.key
         if turn_left:
-            value, new_child = remove_recursive(ndb, key, node.left_node_ref, version)
+            value, new_child, new_key = remove_recursive(
+                ndb, key, node.left_node_ref, version
+            )
         else:
-            value, new_child = remove_recursive(ndb, key, node.right_node_ref, version)
+            value, new_child, new_key = remove_recursive(
+                ndb, key, node.right_node_ref, version
+            )
 
         if value is None:
-            return None, None
+            return None, None, None
 
         if new_child is None:
             # return the other child
             if turn_left:
-                return value, node.right_node_ref
+                return value, node.right_node_ref, node.key
             else:
-                return value, node.left_node_ref
+                return value, node.left_node_ref, None
         else:
             # update the subtree
             if isinstance(node, PersistedNode):
@@ -428,8 +432,11 @@ def remove_recursive(
                 node.left_node_ref = new_child
             else:
                 node.right_node_ref = new_child
+                if new_key is not None:
+                    node.key = new_key
+                    new_key = None
             node.update_height_size(ndb)
-            return value, node.balance(ndb, version)
+            return value, node.balance(ndb, version), new_key
 
 
 def set_recursive(

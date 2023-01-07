@@ -559,7 +559,7 @@ def verify_changeset(file, version):
             tree.save_version()
             assert tree.version == v, f"version mismatch: {tree.version} != {v}"
 
-        root_hash = tree.save_version(True)
+        root_hash = tree.root_node_ref or b""
         print(tree.version, binascii.hexlify(root_hash).decode())
 
 
